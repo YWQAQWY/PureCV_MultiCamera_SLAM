@@ -303,6 +303,8 @@ public:
     void SetORBVocabulary(ORBVocabulary* pORBVoc);
     void SetKeyFrameDatabase(KeyFrameDatabase* pKFDB);
 
+    const Frame::AuxCamData* GetAuxCamData(const int camId) const;
+
     bool bImu;
 
     // The following variables are accesed from only 1 thread or never change (no mutex needed).
@@ -456,6 +458,8 @@ protected:
 
     // Grid over the image to speed up feature matching
     std::vector< std::vector <std::vector<size_t> > > mGrid;
+
+    std::vector<Frame::AuxCamData> mvAuxCamData;
 
     std::map<KeyFrame*,int> mConnectedKeyFrameWeights;
     std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;

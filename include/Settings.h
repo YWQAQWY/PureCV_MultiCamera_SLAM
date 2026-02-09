@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
+#include <vector>
 
 namespace ORB_SLAM3 {
 
@@ -117,6 +118,12 @@ namespace ORB_SLAM3 {
 
         float thFarPoints() {return thFarPoints_;}
 
+        int numCameras() const {return nCameras_;}
+        int mainCamIndex() const {return mainCamIndex_;}
+        const std::vector<Sophus::SE3f>& Tbc() const {return vTbc_;}
+        const std::vector<Sophus::SE3f>& Trc() const {return vTrc_;}
+        const std::vector<GeometricCamera*>& rigCameras() const {return vRigCameras_;}
+
         cv::Mat M1l() {return M1l_;}
         cv::Mat M2l() {return M2l_;}
         cv::Mat M1r() {return M1r_;}
@@ -153,6 +160,7 @@ namespace ORB_SLAM3 {
         void readViewer(cv::FileStorage& fSettings);
         void readLoadAndSave(cv::FileStorage& fSettings);
         void readOtherParameters(cv::FileStorage& fSettings);
+        void readRig(cv::FileStorage& fSettings);
 
         void precomputeRectificationMaps();
 
@@ -227,6 +235,14 @@ namespace ORB_SLAM3 {
          * Other stuff
          */
         float thFarPoints_;
+
+        int nCameras_ = 1;
+        int mainCamIndex_ = 0;
+        // T_{b<-c_i}: camera -> body
+        std::vector<Sophus::SE3f> vTbc_;
+        // T_{r<-c_i}: camera -> rig (rig == main camera)
+        std::vector<Sophus::SE3f> vTrc_;
+        std::vector<GeometricCamera*> vRigCameras_;
 
     };
 };

@@ -27,6 +27,7 @@
 #include <opencv2/core/eigen.hpp>
 
 #include <iostream>
+#include <sstream>
 
 using namespace std;
 
@@ -153,6 +154,9 @@ namespace ORB_SLAM3 {
         //Read image info
         readImageInfo(fSettings);
         cout << "\t-Loaded image info" << endl;
+
+        readRig(fSettings);
+        cout << "\t-Loaded rig extrinsics" << endl;
 
         if(sensor_ == System::IMU_MONOCULAR || sensor_ == System::IMU_STEREO || sensor_ == System::IMU_RGBD){
             readIMU(fSettings);
@@ -480,6 +484,118 @@ namespace ORB_SLAM3 {
         bool found;
 
         thFarPoints_ = readParameter<float>(fSettings,"System.thFarPoints",found,false);
+    }
+
+    void Settings::readRig(cv::FileStorage& fSettings) {
+        bool found;
+
+        int nCam = readParameter<int>(fSettings,"Camera.nCam",found,false);
+        if(!found){
+            nCameras_ = 1;
+            mainCamIndex_ = 0;
+            vTbc_.assign(1, Sophus::SE3f());
+            vTrc_.assign(1, Sophus::SE3f());
+            vRigCameras_.clear();
+            return;
+        }
+
+        nCameras_ = nCam;
+        mainCamIndex_ = readParameter<int>(fSettings,"Rig.main_cam_index",found,false);
+        if(!found){
+            mainCamIndex_ = 0;
+        }
+
+        if(mainCamIndex_ < 0 || mainCamIndex_ >= nCameras_){
+            std::cerr << "Rig.main_cam_index is out of range, aborting..." << std::endl;
+            exit(-1);
+        }
+
+        vTbc_.clear();
+        vTbc_.reserve(nCameras_);
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex){
+            std::ostringstream key;
+            key << "Camera" << camIndex << ".Twc";
+            // Twc is camera->body: T_{b<-c_i}
+            cv::Mat cvTbc = readParameter<cv::Mat>(fSettings, key.str(), found, false);
+            if(!found){
+                vTbc_.push_back(Sophus::SE3f());
+                continue;
+            }
+            vTbc_.push_back(Converter::toSophus(cvTbc));
+        }
+
+        vRigCameras_.clear();
+        vRigCameras_.reserve(nCameras_);
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex){
+            std::ostringstream prefix;
+            prefix << "Camera" << camIndex << ".";
+
+            std::ostringstream keyfx;
+            keyfx << prefix.str() << "fx";
+            readParameter<float>(fSettings, keyfx.str(), found, false);
+            if(!found){
+                if(calibration1_){
+                    vector<float> vCalibration = {calibration1_->getParameter(0), calibration1_->getParameter(1),
+                                                   calibration1_->getParameter(2), calibration1_->getParameter(3)};
+                    vRigCameras_.push_back(new Pinhole(vCalibration));
+                }
+                else{
+                    vRigCameras_.push_back(nullptr);
+                }
+                continue;
+            }
+
+            if(cameraType_ == PinHole || cameraType_ == Rectified){
+                float fx = readParameter<float>(fSettings, keyfx.str(), found);
+                std::ostringstream keyfy;
+                keyfy << prefix.str() << "fy";
+                float fy = readParameter<float>(fSettings, keyfy.str(), found);
+                std::ostringstream keycx;
+                keycx << prefix.str() << "cx";
+                float cx = readParameter<float>(fSettings, keycx.str(), found);
+                std::ostringstream keycy;
+                keycy << prefix.str() << "cy";
+                float cy = readParameter<float>(fSettings, keycy.str(), found);
+                vector<float> vCalibration = {fx, fy, cx, cy};
+                vRigCameras_.push_back(new Pinhole(vCalibration));
+            }
+            else if(cameraType_ == KannalaBrandt){
+                std::ostringstream keyfy;
+                keyfy << prefix.str() << "fy";
+                std::ostringstream keycx;
+                keycx << prefix.str() << "cx";
+                std::ostringstream keycy;
+                keycy << prefix.str() << "cy";
+                std::ostringstream keyk1;
+                keyk1 << prefix.str() << "k1";
+                std::ostringstream keyk2;
+                keyk2 << prefix.str() << "k2";
+                std::ostringstream keyk3;
+                keyk3 << prefix.str() << "k3";
+                std::ostringstream keyk4;
+                keyk4 << prefix.str() << "k4";
+                float fx = readParameter<float>(fSettings, keyfx.str(), found);
+                float fy = readParameter<float>(fSettings, keyfy.str(), found);
+                float cx = readParameter<float>(fSettings, keycx.str(), found);
+                float cy = readParameter<float>(fSettings, keycy.str(), found);
+                float k0 = readParameter<float>(fSettings, keyk1.str(), found);
+                float k1 = readParameter<float>(fSettings, keyk2.str(), found);
+                float k2 = readParameter<float>(fSettings, keyk3.str(), found);
+                float k3 = readParameter<float>(fSettings, keyk4.str(), found);
+                vector<float> vCalibration = {fx, fy, cx, cy, k0, k1, k2, k3};
+                vRigCameras_.push_back(new KannalaBrandt8(vCalibration));
+            }
+        }
+
+        const Sophus::SE3f T_b_c0 = vTbc_[mainCamIndex_];
+        vTrc_.assign(nCameras_, Sophus::SE3f());
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex){
+            // T_{r<-c_i} = (T_{b<-c0})^{-1} * T_{b<-c_i}
+            // Use T_{c_i<-r} = (T_{r<-c_i})^{-1} when projecting.
+            vTrc_[camIndex] = T_b_c0.inverse() * vTbc_[camIndex];
+        }
+        // Rig is defined to coincide with main camera: T_{r<-c0} = I
+        vTrc_[mainCamIndex_] = Sophus::SE3f();
     }
 
     void Settings::precomputeRectificationMaps() {

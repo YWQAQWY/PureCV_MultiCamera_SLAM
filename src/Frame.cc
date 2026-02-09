@@ -90,11 +90,22 @@ Frame::Frame(const Frame &frame)
 
     mmProjectPoints = frame.mmProjectPoints;
     mmMatchedInImage = frame.mmMatchedInImage;
+    mvAuxCamData = frame.mvAuxCamData;
 
 #ifdef REGISTER_TIMES
     mTimeStereoMatch = frame.mTimeStereoMatch;
     mTimeORB_Ext = frame.mTimeORB_Ext;
 #endif
+}
+
+const Frame::AuxCamData* Frame::GetAuxCamData(const int camId) const
+{
+    for(const auto &data : mvAuxCamData)
+    {
+        if(data.camId == camId)
+            return &data;
+    }
+    return nullptr;
 }
 
 

@@ -26,6 +26,7 @@
 #include<stdlib.h>
 #include<string>
 #include<thread>
+#include<vector>
 #include<opencv2/core/core.hpp>
 
 #include "Tracking.h"
@@ -119,6 +120,7 @@ public:
     // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
     // Returns the camera pose (empty if tracking fails).
     Sophus::SE3f TrackMonocular(const cv::Mat &im, const double &timestamp, const vector<IMU::Point>& vImuMeas = vector<IMU::Point>(), string filename="");
+    Sophus::SE3f TrackMultiCamera(const std::vector<cv::Mat> &vIm, const double &timestamp, string filename="");
 
 
     // This stops local mapping thread (map building) and performs only camera tracking.
@@ -145,6 +147,8 @@ public:
     // Call first Shutdown()
     // See format details at: http://vision.in.tum.de/data/datasets/rgbd-dataset
     void SaveTrajectoryTUM(const string &filename);
+    void SaveRigTrajectoryTUM(const string &filename);
+    void SaveMapPointsXYZ(const string &filename);
 
     // Save keyframe poses in the TUM RGB-D dataset format.
     // This method works for all sensor input.
@@ -185,6 +189,9 @@ public:
     void ChangeDataset();
 
     float GetImageScale();
+
+    int GetNumCameras() const;
+    int GetMainCamIndex() const;
 
 #ifdef REGISTER_TIMES
     void InsertRectTime(double& time);

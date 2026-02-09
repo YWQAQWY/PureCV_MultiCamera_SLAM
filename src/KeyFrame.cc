@@ -93,6 +93,18 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     SetPose(F.GetPose());
 
     mnOriginMapId = pMap->GetId();
+
+    mvAuxCamData = F.mvAuxCamData;
+}
+
+const Frame::AuxCamData* KeyFrame::GetAuxCamData(const int camId) const
+{
+    for(const auto &data : mvAuxCamData)
+    {
+        if(data.camId == camId)
+            return &data;
+    }
+    return nullptr;
 }
 
 void KeyFrame::ComputeBoW()

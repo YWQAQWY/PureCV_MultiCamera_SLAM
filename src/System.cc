@@ -473,6 +473,81 @@ Sophus::SE3f System::TrackMonocular(const cv::Mat &im, const double &timestamp, 
     return Tcw;
 }
 
+Sophus::SE3f System::TrackMultiCamera(const std::vector<cv::Mat> &vIm, const double &timestamp, string filename)
+{
+    {
+        unique_lock<mutex> lock(mMutexReset);
+        if(mbShutDown)
+            return Sophus::SE3f();
+    }
+
+    if(mSensor!=MONOCULAR && mSensor!=IMU_MONOCULAR)
+    {
+        cerr << "ERROR: you called TrackMultiCamera but input sensor was not set to Monocular nor Monocular-Inertial." << endl;
+        exit(-1);
+    }
+
+    std::vector<cv::Mat> vImToFeed = vIm;
+    if(settings_ && settings_->needToResize())
+    {
+        for(auto &im : vImToFeed)
+        {
+            if(im.empty())
+                continue;
+            cv::Mat resizedIm;
+            cv::resize(im, resizedIm, settings_->newImSize());
+            im = resizedIm;
+        }
+    }
+
+    // Check mode change
+    {
+        unique_lock<mutex> lock(mMutexMode);
+        if(mbActivateLocalizationMode)
+        {
+            mpLocalMapper->RequestStop();
+            while(!mpLocalMapper->isStopped())
+            {
+                usleep(1000);
+            }
+            mpTracker->InformOnlyTracking(true);
+            mbActivateLocalizationMode = false;
+        }
+        if(mbDeactivateLocalizationMode)
+        {
+            mpTracker->InformOnlyTracking(false);
+            mpLocalMapper->Release();
+            mbDeactivateLocalizationMode = false;
+        }
+    }
+
+    // Check reset
+    {
+        unique_lock<mutex> lock(mMutexReset);
+        if(mbReset)
+        {
+            mpTracker->Reset();
+            mbReset = false;
+            mbResetActiveMap = false;
+        }
+        else if(mbResetActiveMap)
+        {
+            cout << "SYSTEM-> Reseting active map in monocular case" << endl;
+            mpTracker->ResetActiveMap();
+            mbResetActiveMap = false;
+        }
+    }
+
+    Sophus::SE3f Tcw = mpTracker->GrabImageMultiCamera(vImToFeed, timestamp, filename);
+
+    unique_lock<mutex> lock2(mMutexState);
+    mTrackingState = mpTracker->mState;
+    mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
+    mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn;
+
+    return Tcw;
+}
+
 
 
 void System::ActivateLocalizationMode()
@@ -624,6 +699,80 @@ void System::SaveTrajectoryTUM(const string &filename)
     }
     f.close();
     // cout << endl << "trajectory saved!" << endl;
+}
+
+void System::SaveRigTrajectoryTUM(const string &filename)
+{
+    cout << endl << "Saving rig trajectory to " << filename << " ..." << endl;
+
+    vector<KeyFrame*> vpKFs = mpAtlas->GetAllKeyFrames();
+    sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
+
+    if(vpKFs.empty())
+    {
+        cerr << "ERROR: SaveRigTrajectoryTUM found no keyframes." << endl;
+        return;
+    }
+
+    // Transform all keyframes so that the first keyframe is at the origin.
+    Sophus::SE3f Two = vpKFs[0]->GetPoseInverse();
+
+    ofstream f;
+    f.open(filename.c_str());
+    f << fixed;
+
+    list<ORB_SLAM3::KeyFrame*>::iterator lRit = mpTracker->mlpReferences.begin();
+    list<double>::iterator lT = mpTracker->mlFrameTimes.begin();
+    list<bool>::iterator lbL = mpTracker->mlbLost.begin();
+    for(list<Sophus::SE3f>::iterator lit=mpTracker->mlRelativeFramePoses.begin(),
+        lend=mpTracker->mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++, lbL++)
+    {
+        if(*lbL)
+            continue;
+
+        KeyFrame* pKF = *lRit;
+        Sophus::SE3f Trw;
+
+        // If the reference keyframe was culled, traverse the spanning tree to get a suitable keyframe.
+        while(pKF->isBad())
+        {
+            Trw = Trw * pKF->mTcp;
+            pKF = pKF->GetParent();
+        }
+
+        Trw = Trw * pKF->GetPose() * Two;
+
+        Sophus::SE3f Tcw = (*lit) * Trw;
+        // Rig frame is defined to coincide with the main camera: T_{w<-r} = T_{w<-c0}
+        Sophus::SE3f Twr = Tcw.inverse();
+
+        Eigen::Vector3f twr = Twr.translation();
+        Eigen::Quaternionf q = Twr.unit_quaternion();
+
+        f << setprecision(6) << *lT << " " <<  setprecision(9)
+          << twr(0) << " " << twr(1) << " " << twr(2) << " "
+          << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << endl;
+    }
+    f.close();
+}
+
+void System::SaveMapPointsXYZ(const string &filename)
+{
+    cout << endl << "Saving map points to " << filename << " ..." << endl;
+
+    vector<MapPoint*> vpMPs = mpAtlas->GetAllMapPoints();
+    ofstream f;
+    f.open(filename.c_str());
+    f << fixed;
+
+    for(MapPoint* pMP : vpMPs)
+    {
+        if(!pMP || pMP->isBad())
+            continue;
+        Eigen::Vector3f pos = pMP->GetWorldPos();
+        f << setprecision(9) << pos.x() << " " << pos.y() << " " << pos.z() << endl;
+    }
+    f.close();
 }
 
 void System::SaveKeyFrameTrajectoryTUM(const string &filename)
@@ -1383,6 +1532,16 @@ float System::GetImageScale()
     return mpTracker->GetImageScale();
 }
 
+int System::GetNumCameras() const
+{
+    return settings_ ? settings_->numCameras() : 1;
+}
+
+int System::GetMainCamIndex() const
+{
+    return settings_ ? settings_->mainCamIndex() : 0;
+}
+
 #ifdef REGISTER_TIMES
 void System::InsertRectTime(double& time)
 {
@@ -1546,4 +1705,3 @@ string System::CalculateCheckSum(string filename, int type)
 }
 
 } //namespace ORB_SLAM
-

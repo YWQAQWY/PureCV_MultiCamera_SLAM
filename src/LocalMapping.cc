@@ -21,6 +21,7 @@
 #include "LoopClosing.h"
 #include "ORBmatcher.h"
 #include "Optimizer.h"
+#include <opencv2/features2d/features2d.hpp>
 #include "Converter.h"
 #include "GeometricTools.h"
 
@@ -59,6 +60,11 @@ void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
 void LocalMapping::SetTracker(Tracking *pTracker)
 {
     mpTracker=pTracker;
+    mpSettings = mpTracker ? mpTracker->GetSettings() : nullptr;
+    if(mpSettings && mvLastAuxKeyFrames.size() != static_cast<size_t>(mpSettings->numCameras()))
+    {
+        mvLastAuxKeyFrames.assign(mpSettings->numCameras(), nullptr);
+    }
 }
 
 void LocalMapping::Run()
@@ -99,6 +105,7 @@ void LocalMapping::Run()
 
             // Triangulate new MapPoints
             CreateNewMapPoints();
+            CreateAuxMapPoints();
 
             mbAbortBA = false;
 
@@ -709,6 +716,161 @@ void LocalMapping::CreateNewMapPoints()
             mlpRecentAddedMapPoints.push_back(pMP);
         }
     }    
+}
+
+void LocalMapping::CreateAuxMapPoints()
+{
+    if(!mpSettings)
+        return;
+
+    const int nCams = mpSettings->numCameras();
+    if(nCams <= 1)
+        return;
+
+    if(mvLastAuxKeyFrames.size() != static_cast<size_t>(nCams))
+        mvLastAuxKeyFrames.assign(nCams, nullptr);
+
+    const int mainCam = mpSettings->mainCamIndex();
+    const auto &vTrc = mpSettings->Trc();
+    const auto &vRigCameras = mpSettings->rigCameras();
+
+    KeyFrame* pKF2 = mpCurrentKeyFrame;
+
+    for(int camIndex = 0; camIndex < nCams; ++camIndex)
+    {
+        if(camIndex == mainCam)
+            continue;
+
+        const Frame::AuxCamData* data2 = pKF2->GetAuxCamData(camIndex);
+        if(!data2 || data2->mDescriptors.empty())
+        {
+            mvLastAuxKeyFrames[camIndex] = pKF2;
+            continue;
+        }
+
+        KeyFrame* pKF1 = mvLastAuxKeyFrames[camIndex];
+        mvLastAuxKeyFrames[camIndex] = pKF2;
+        if(!pKF1)
+            continue;
+
+        const Frame::AuxCamData* data1 = pKF1->GetAuxCamData(camIndex);
+        if(!data1 || data1->mDescriptors.empty())
+            continue;
+
+        GeometricCamera* pCamera = nullptr;
+        if(camIndex < static_cast<int>(vRigCameras.size()) && vRigCameras[camIndex])
+            pCamera = vRigCameras[camIndex];
+        else
+            pCamera = pKF2->mpCamera;
+
+        if(!pCamera)
+            continue;
+
+        if(camIndex >= static_cast<int>(vTrc.size()))
+            continue;
+
+        const Sophus::SE3f Twr1 = pKF1->GetPose().inverse();
+        const Sophus::SE3f Twr2 = pKF2->GetPose().inverse();
+        const Sophus::SE3f Twc1 = Twr1 * vTrc[camIndex];
+        const Sophus::SE3f Twc2 = Twr2 * vTrc[camIndex];
+        const Sophus::SE3f Tcw1 = Twc1.inverse();
+        const Sophus::SE3f Tcw2 = Twc2.inverse();
+
+        const Eigen::Matrix<float,3,4> eigTcw1 = Tcw1.matrix3x4();
+        const Eigen::Matrix<float,3,4> eigTcw2 = Tcw2.matrix3x4();
+        const Eigen::Matrix<float,3,3> Rcw1 = eigTcw1.block<3,3>(0,0);
+        const Eigen::Matrix<float,3,3> Rcw2 = eigTcw2.block<3,3>(0,0);
+        const Eigen::Vector3f tcw1 = Tcw1.translation();
+        const Eigen::Vector3f tcw2 = Tcw2.translation();
+
+        const Eigen::Vector3f Ow1 = Twc1.translation();
+        const Eigen::Vector3f Ow2 = Twc2.translation();
+        const float baseline = (Ow2 - Ow1).norm();
+        const float medianDepth = pKF2->ComputeSceneMedianDepth(2);
+        if(medianDepth > 0.0f && (baseline / medianDepth) < 0.01f)
+            continue;
+
+        cv::BFMatcher matcher(cv::NORM_HAMMING, true);
+        std::vector<cv::DMatch> matches;
+        matcher.match(data1->mDescriptors, data2->mDescriptors, matches);
+
+        const float ratioFactor = 1.5f * pKF2->mfScaleFactor;
+
+        for(const auto &match : matches)
+        {
+            if(match.distance > 40)
+                continue;
+
+            const int idx1 = match.queryIdx;
+            const int idx2 = match.trainIdx;
+            if(idx1 < 0 || idx2 < 0)
+                continue;
+
+            const cv::KeyPoint &kp1 = data1->mvKeys[idx1];
+            const cv::KeyPoint &kp2 = data2->mvKeys[idx2];
+
+            Eigen::Vector3f xn1 = pCamera->unprojectEig(kp1.pt);
+            Eigen::Vector3f xn2 = pCamera->unprojectEig(kp2.pt);
+
+            Eigen::Vector3f ray1 = Rcw1.transpose() * xn1;
+            Eigen::Vector3f ray2 = Rcw2.transpose() * xn2;
+            const float cosParallaxRays = ray1.dot(ray2) / (ray1.norm() * ray2.norm());
+            if(cosParallaxRays <= 0.0f || cosParallaxRays > 0.9998f)
+                continue;
+
+            Eigen::Vector3f x3D;
+            Eigen::Matrix<float,3,4> Tc1w = eigTcw1;
+            Eigen::Matrix<float,3,4> Tc2w = eigTcw2;
+            if(!GeometricTools::Triangulate(xn1, xn2, Tc1w, Tc2w, x3D))
+                continue;
+
+            const float z1 = Rcw1.row(2).dot(x3D) + tcw1(2);
+            if(z1 <= 0)
+                continue;
+
+            const float z2 = Rcw2.row(2).dot(x3D) + tcw2(2);
+            if(z2 <= 0)
+                continue;
+
+            const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
+            const float x1 = Rcw1.row(0).dot(x3D) + tcw1(0);
+            const float y1 = Rcw1.row(1).dot(x3D) + tcw1(1);
+            cv::Point2f uv1 = pCamera->project(cv::Point3f(x1, y1, z1));
+            const float errX1 = uv1.x - kp1.pt.x;
+            const float errY1 = uv1.y - kp1.pt.y;
+            if((errX1 * errX1 + errY1 * errY1) > 5.991f * sigmaSquare1)
+                continue;
+
+            const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
+            const float x2 = Rcw2.row(0).dot(x3D) + tcw2(0);
+            const float y2 = Rcw2.row(1).dot(x3D) + tcw2(1);
+            cv::Point2f uv2 = pCamera->project(cv::Point3f(x2, y2, z2));
+            const float errX2 = uv2.x - kp2.pt.x;
+            const float errY2 = uv2.y - kp2.pt.y;
+            if((errX2 * errX2 + errY2 * errY2) > 5.991f * sigmaSquare2)
+                continue;
+
+            Eigen::Vector3f normal1 = x3D - Ow1;
+            Eigen::Vector3f normal2 = x3D - Ow2;
+            float dist1 = normal1.norm();
+            float dist2 = normal2.norm();
+            if(dist1 == 0 || dist2 == 0)
+                continue;
+
+            if(mbFarPoints && (dist1 >= mThFarPoints || dist2 >= mThFarPoints))
+                continue;
+
+            const float ratioDist = dist2 / dist1;
+            const float ratioOctave = pKF1->mvScaleFactors[kp1.octave] / pKF2->mvScaleFactors[kp2.octave];
+            if(ratioDist * ratioFactor < ratioOctave || ratioDist > ratioOctave * ratioFactor)
+                continue;
+
+            MapPoint* pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpAtlas->GetCurrentMap());
+            pMP->AddAuxObservation(pKF1, camIndex, idx1);
+            pMP->AddAuxObservation(mpCurrentKeyFrame, camIndex, idx2);
+            mpAtlas->AddMapPoint(pMP);
+        }
+    }
 }
 
 void LocalMapping::SearchInNeighbors()

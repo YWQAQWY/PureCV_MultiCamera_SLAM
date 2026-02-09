@@ -1,0 +1,15 @@
+./Examples/MultiCamera/multi_fisheye \
+Vocabulary/ORBvoc.txt \
+Config/multi_undistort_fisheye.yaml \
+/home/yanwq/project/dataset_dis/association.txt \
+RigTrajectory.txt \
+/home/yanwq/project/output1
+
+./build.sh
+
+./Examples/MultiCamera/multi_fisheye \
+Vocabulary/ORBvoc.txt \
+Config/multi_undistort_fisheye.yaml \
+/home/yanwq/project/dataset_dis/association.txt \
+RigTrajectory.txt \
+/home/yanwq/project/output1

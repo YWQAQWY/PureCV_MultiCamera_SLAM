@@ -165,6 +165,22 @@ void MapPoint::AddObservation(KeyFrame* pKF, int idx)
         nObs++;
 }
 
+void MapPoint::AddAuxObservation(KeyFrame* pKF, int camId, int idx)
+{
+    unique_lock<mutex> lock(mMutexFeatures);
+    AuxObservation obs;
+    obs.pKF = pKF;
+    obs.camId = camId;
+    obs.idx = idx;
+    mvAuxObservations.push_back(obs);
+}
+
+std::vector<MapPoint::AuxObservation> MapPoint::GetAuxObservations()
+{
+    unique_lock<mutex> lock(mMutexFeatures);
+    return mvAuxObservations;
+}
+
 void MapPoint::EraseObservation(KeyFrame* pKF)
 {
     bool bBad=false;

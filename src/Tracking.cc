@@ -49,6 +49,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
 {
     // Load camera parameters from settings file
+    mpSettings = settings;
     if(settings){
         newParameterLoader(settings);
     }
@@ -1537,6 +1538,9 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
             cvtColor(mImGray,mImGray,cv::COLOR_BGRA2GRAY);
     }
 
+    if(mImGray.depth() != CV_8U)
+        mImGray.convertTo(mImGray, CV_8U, 1.0/256.0);
+
     if((fabs(mDepthMapFactor-1.0f)>1e-5) || imDepth.type()!=CV_32F)
         imDepth.convertTo(imDepth,CV_32F,mDepthMapFactor);
 
@@ -1607,6 +1611,121 @@ Sophus::SE3f Tracking::GrabImageMonocular(const cv::Mat &im, const double &times
 #ifdef REGISTER_TIMES
     vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
 #endif
+
+    lastID = mCurrentFrame.mnId;
+    Track();
+
+    return mCurrentFrame.GetPose();
+}
+
+Sophus::SE3f Tracking::GrabImageMultiCamera(const std::vector<cv::Mat> &vIm, const double &timestamp, string filename)
+{
+    if(vIm.empty())
+        return Sophus::SE3f();
+
+    int mainCam = 0;
+    if(mpSettings)
+        mainCam = mpSettings->mainCamIndex();
+    if(mainCam < 0 || mainCam >= static_cast<int>(vIm.size()))
+        mainCam = 0;
+
+    mImGray = vIm[mainCam];
+    if(mImGray.channels()==3)
+    {
+        if(mbRGB)
+            cvtColor(mImGray,mImGray,cv::COLOR_RGB2GRAY);
+        else
+            cvtColor(mImGray,mImGray,cv::COLOR_BGR2GRAY);
+    }
+    else if(mImGray.channels()==4)
+    {
+        if(mbRGB)
+            cvtColor(mImGray,mImGray,cv::COLOR_RGBA2GRAY);
+        else
+            cvtColor(mImGray,mImGray,cv::COLOR_BGRA2GRAY);
+    }
+
+    if (mSensor == System::MONOCULAR)
+    {
+        if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET ||(lastID - initID) < mMaxFrames)
+            mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
+        else
+            mCurrentFrame = Frame(mImGray,timestamp,mpORBextractorLeft,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
+    }
+    else if(mSensor == System::IMU_MONOCULAR)
+    {
+        if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET)
+        {
+            mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
+        }
+        else
+            mCurrentFrame = Frame(mImGray,timestamp,mpORBextractorLeft,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
+    }
+
+    if (mState==NO_IMAGES_YET)
+        t0=timestamp;
+
+    mCurrentFrame.mNameFile = filename;
+    mCurrentFrame.mnDataset = mnNumDataset;
+
+#ifdef REGISTER_TIMES
+    vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
+#endif
+
+    mCurrentFrame.mvAuxCamData.clear();
+
+    if(!mpSettings)
+    {
+        lastID = mCurrentFrame.mnId;
+        Track();
+        return mCurrentFrame.GetPose();
+    }
+
+    const auto &vRigCameras = mpSettings->rigCameras();
+    ORBextractor* pExtractor = mpORBextractorLeft;
+    if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET)
+        pExtractor = mpIniORBextractor;
+
+    for(size_t camIndex = 0; camIndex < vIm.size(); ++camIndex)
+    {
+        if(static_cast<int>(camIndex) == mainCam)
+            continue;
+
+        cv::Mat imGray = vIm[camIndex];
+        if(imGray.empty())
+            continue;
+
+        if(imGray.channels() == 3)
+        {
+            if(mbRGB)
+                cvtColor(imGray, imGray, cv::COLOR_RGB2GRAY);
+            else
+                cvtColor(imGray, imGray, cv::COLOR_BGR2GRAY);
+        }
+        else if(imGray.channels() == 4)
+        {
+            if(mbRGB)
+                cvtColor(imGray, imGray, cv::COLOR_RGBA2GRAY);
+            else
+                cvtColor(imGray, imGray, cv::COLOR_BGRA2GRAY);
+        }
+
+        if(imGray.depth() != CV_8U)
+            imGray.convertTo(imGray, CV_8U, 1.0/256.0);
+
+        Frame::AuxCamData data;
+        data.camId = static_cast<int>(camIndex);
+        if(camIndex < vRigCameras.size() && vRigCameras[camIndex])
+            data.mpCamera = vRigCameras[camIndex];
+        else
+            data.mpCamera = mpCamera;
+
+        std::vector<int> vLappingArea = {0, 0};
+        (*pExtractor)(imGray, cv::Mat(), data.mvKeys, data.mDescriptors, vLappingArea);
+
+        if(!data.mvKeys.empty())
+            mCurrentFrame.mvAuxCamData.push_back(data);
+    }
 
     lastID = mCurrentFrame.mnId;
     Track();

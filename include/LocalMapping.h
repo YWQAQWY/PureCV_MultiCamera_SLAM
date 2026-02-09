@@ -134,6 +134,7 @@ protected:
     bool CheckNewKeyFrames();
     void ProcessNewKeyFrame();
     void CreateNewMapPoints();
+    void CreateAuxMapPoints();
 
     void MapPointCulling();
     void SearchInNeighbors();
@@ -160,6 +161,9 @@ protected:
 
     LoopClosing* mpLoopCloser;
     Tracking* mpTracker;
+
+    Settings* mpSettings;
+    std::vector<KeyFrame*> mvLastAuxKeyFrames;
 
     std::list<KeyFrame*> mlNewKeyFrames;
 

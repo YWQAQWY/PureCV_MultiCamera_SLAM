@@ -53,6 +53,13 @@ class ORBextractor;
 class Frame
 {
 public:
+    struct AuxCamData
+    {
+        int camId = -1;
+        GeometricCamera* mpCamera = nullptr;
+        std::vector<cv::KeyPoint> mvKeys;
+        cv::Mat mDescriptors;
+    };
     Frame();
 
     // Copy constructor.
@@ -72,6 +79,8 @@ public:
 
     // Extract ORB on the image. 0 for left image and 1 for right image.
     void ExtractORB(int flag, const cv::Mat &im, const int x0, const int x1);
+
+    const AuxCamData* GetAuxCamData(const int camId) const;
 
     // Compute Bag of Words representation.
     void ComputeBoW();
@@ -240,6 +249,8 @@ public:
 
     // ORB descriptor, each row associated to a keypoint.
     cv::Mat mDescriptors, mDescriptorsRight;
+
+    std::vector<AuxCamData> mvAuxCamData;
 
     // MapPoints associated to keypoints, NULL pointer if no association.
     // Flag to identify outlier associations.

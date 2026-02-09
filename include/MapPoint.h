@@ -128,6 +128,16 @@ public:
     std::tuple<int,int> GetIndexInKeyFrame(KeyFrame* pKF);
     bool IsInKeyFrame(KeyFrame* pKF);
 
+    struct AuxObservation
+    {
+        KeyFrame* pKF = nullptr;
+        int camId = -1;
+        int idx = -1;
+    };
+
+    void AddAuxObservation(KeyFrame* pKF, int camId, int idx);
+    std::vector<AuxObservation> GetAuxObservations();
+
     void SetBadFlag();
     bool isBad();
 
@@ -223,6 +233,8 @@ protected:
 
      // Best descriptor to fast matching
      cv::Mat mDescriptor;
+
+     std::vector<AuxObservation> mvAuxObservations;
 
      // Reference KeyFrame
      KeyFrame* mpRefKF;
