@@ -61,10 +61,8 @@ void LocalMapping::SetTracker(Tracking *pTracker)
 {
     mpTracker=pTracker;
     mpSettings = mpTracker ? mpTracker->GetSettings() : nullptr;
-    if(mpSettings && mvLastAuxKeyFrames.size() != static_cast<size_t>(mpSettings->numCameras()))
-    {
-        mvLastAuxKeyFrames.assign(mpSettings->numCameras(), nullptr);
-    }
+    if(mpSettings && mvAuxKeyFrames.size() != static_cast<size_t>(mpSettings->numCameras()))
+        mvAuxKeyFrames.assign(mpSettings->numCameras(), std::deque<KeyFrame*>());
 }
 
 void LocalMapping::Run()
@@ -732,14 +730,15 @@ void LocalMapping::CreateAuxMapPoints()
     if(nCams <= 1)
         return;
 
-    if(mvLastAuxKeyFrames.size() != static_cast<size_t>(nCams))
-        mvLastAuxKeyFrames.assign(nCams, nullptr);
+    if(mvAuxKeyFrames.size() != static_cast<size_t>(nCams))
+        mvAuxKeyFrames.assign(nCams, std::deque<KeyFrame*>());
 
     const int mainCam = mpSettings->mainCamIndex();
     const auto &vTrc = mpSettings->Trc();
     const auto &vRigCameras = mpSettings->rigCameras();
 
     KeyFrame* pKF2 = mpCurrentKeyFrame;
+    std::vector<MapPoint*> vNewAuxMPs;
     std::vector<int> vMatchesPerCam(nCams, 0);
     std::vector<int> vCreatedPerCam(nCams, 0);
 
@@ -753,20 +752,13 @@ void LocalMapping::CreateAuxMapPoints()
         {
             std::cout << "[AuxMapPoints] KF=" << pKF2->mnId << " cam=" << camIndex
                       << " no descriptors on current KF" << std::endl;
-            mvLastAuxKeyFrames[camIndex] = pKF2;
             continue;
         }
 
-        KeyFrame* pKF1 = mvLastAuxKeyFrames[camIndex];
-        mvLastAuxKeyFrames[camIndex] = pKF2;
-        if(!pKF1)
-            continue;
-
-        const Frame::AuxCamData* data1 = pKF1->GetAuxCamData(camIndex);
-        if(!data1 || data1->mDescriptors.empty())
+        std::deque<KeyFrame*>& vPrevKFs = mvAuxKeyFrames[camIndex];
+        if(vPrevKFs.empty())
         {
-            std::cout << "[AuxMapPoints] KF=" << pKF2->mnId << " cam=" << camIndex
-                      << " no descriptors on last KF" << std::endl;
+            vPrevKFs.push_front(pKF2);
             continue;
         }
 
@@ -782,116 +774,136 @@ void LocalMapping::CreateAuxMapPoints()
         if(camIndex >= static_cast<int>(vTrc.size()))
             continue;
 
-        const Sophus::SE3f Twr1 = pKF1->GetPose().inverse();
-        const Sophus::SE3f Twr2 = pKF2->GetPose().inverse();
-        const Sophus::SE3f Twc1 = Twr1 * vTrc[camIndex];
-        const Sophus::SE3f Twc2 = Twr2 * vTrc[camIndex];
-        const Sophus::SE3f Tcw1 = Twc1.inverse();
-        const Sophus::SE3f Tcw2 = Twc2.inverse();
-        const Sophus::SE3f T12 = Tcw1 * Twc2;
-        const Eigen::Matrix3f R12 = T12.rotationMatrix();
-        const Eigen::Vector3f t12 = T12.translation();
-
-        const Eigen::Matrix<float,3,4> eigTcw1 = Tcw1.matrix3x4();
-        const Eigen::Matrix<float,3,4> eigTcw2 = Tcw2.matrix3x4();
-        const Eigen::Matrix<float,3,3> Rcw1 = eigTcw1.block<3,3>(0,0);
-        const Eigen::Matrix<float,3,3> Rcw2 = eigTcw2.block<3,3>(0,0);
-        const Eigen::Vector3f tcw1 = Tcw1.translation();
-        const Eigen::Vector3f tcw2 = Tcw2.translation();
-
-        const Eigen::Vector3f Ow1 = Twc1.translation();
-        const Eigen::Vector3f Ow2 = Twc2.translation();
-        const float baseline = (Ow2 - Ow1).norm();
-        const float medianDepth = pKF2->ComputeSceneMedianDepth(2);
-        if(medianDepth > 0.0f && (baseline / medianDepth) < 0.01f)
-            continue;
-
-        cv::BFMatcher matcher(cv::NORM_HAMMING, true);
-        std::vector<cv::DMatch> matches;
-        matcher.match(data1->mDescriptors, data2->mDescriptors, matches);
-
-        const float ratioFactor = 1.5f * pKF2->mfScaleFactor;
-
-        for(const auto &match : matches)
+        for(KeyFrame* pKF1 : vPrevKFs)
         {
-            vMatchesPerCam[camIndex]++;
-            if(match.distance > 40)
+            if(!pKF1 || pKF1 == pKF2)
                 continue;
 
-            const int idx1 = match.queryIdx;
-            const int idx2 = match.trainIdx;
-            if(idx1 < 0 || idx2 < 0)
+            const Frame::AuxCamData* data1 = pKF1->GetAuxCamData(camIndex);
+            if(!data1 || data1->mDescriptors.empty())
+            {
+                std::cout << "[AuxMapPoints] KF=" << pKF2->mnId << " cam=" << camIndex
+                          << " no descriptors on last KF" << std::endl;
+                continue;
+            }
+
+            const Sophus::SE3f Twr1 = pKF1->GetPose().inverse();
+            const Sophus::SE3f Twr2 = pKF2->GetPose().inverse();
+            const Sophus::SE3f Twc1 = Twr1 * vTrc[camIndex];
+            const Sophus::SE3f Twc2 = Twr2 * vTrc[camIndex];
+            const Sophus::SE3f Tcw1 = Twc1.inverse();
+            const Sophus::SE3f Tcw2 = Twc2.inverse();
+            const Sophus::SE3f T12 = Tcw1 * Twc2;
+            const Eigen::Matrix3f R12 = T12.rotationMatrix();
+            const Eigen::Vector3f t12 = T12.translation();
+
+            const Eigen::Matrix<float,3,4> eigTcw1 = Tcw1.matrix3x4();
+            const Eigen::Matrix<float,3,4> eigTcw2 = Tcw2.matrix3x4();
+            const Eigen::Matrix<float,3,3> Rcw1 = eigTcw1.block<3,3>(0,0);
+            const Eigen::Matrix<float,3,3> Rcw2 = eigTcw2.block<3,3>(0,0);
+            const Eigen::Vector3f tcw1 = Tcw1.translation();
+            const Eigen::Vector3f tcw2 = Tcw2.translation();
+
+            const Eigen::Vector3f Ow1 = Twc1.translation();
+            const Eigen::Vector3f Ow2 = Twc2.translation();
+            const float baseline = (Ow2 - Ow1).norm();
+            const float medianDepth = pKF2->ComputeSceneMedianDepth(2);
+            if(medianDepth > 0.0f && (baseline / medianDepth) < 0.01f)
                 continue;
 
-            const cv::KeyPoint &kp1 = data1->mvKeys[idx1];
-            const cv::KeyPoint &kp2 = data2->mvKeys[idx2];
+            cv::BFMatcher matcher(cv::NORM_HAMMING, true);
+            std::vector<cv::DMatch> matches;
+            matcher.match(data1->mDescriptors, data2->mDescriptors, matches);
 
-            Eigen::Vector3f xn1 = pCamera->unprojectEig(kp1.pt);
-            Eigen::Vector3f xn2 = pCamera->unprojectEig(kp2.pt);
+            const float ratioFactor = 1.5f * pKF2->mfScaleFactor;
 
-            Eigen::Vector3f ray1 = Rcw1.transpose() * xn1;
-            Eigen::Vector3f ray2 = Rcw2.transpose() * xn2;
-            const float cosParallaxRays = ray1.dot(ray2) / (ray1.norm() * ray2.norm());
-            if(cosParallaxRays <= 0.0f || cosParallaxRays > 0.9998f)
-                continue;
+            for(const auto &match : matches)
+            {
+                vMatchesPerCam[camIndex]++;
+                if(match.distance > 40)
+                    continue;
 
-            Eigen::Vector3f x3D;
-            Eigen::Matrix<float,3,4> Tc1w = eigTcw1;
-            Eigen::Matrix<float,3,4> Tc2w = eigTcw2;
-            if(!GeometricTools::Triangulate(xn1, xn2, Tc1w, Tc2w, x3D))
-                continue;
 
-            const float z1 = Rcw1.row(2).dot(x3D) + tcw1(2);
-            if(z1 <= 0)
-                continue;
+                const int idx1 = match.queryIdx;
+                const int idx2 = match.trainIdx;
+                if(idx1 < 0 || idx2 < 0)
+                    continue;
 
-            const float z2 = Rcw2.row(2).dot(x3D) + tcw2(2);
-            if(z2 <= 0)
-                continue;
+                const cv::KeyPoint &kp1 = data1->mvKeys[idx1];
+                const cv::KeyPoint &kp2 = data2->mvKeys[idx2];
 
-            const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
-            const float x1 = Rcw1.row(0).dot(x3D) + tcw1(0);
-            const float y1 = Rcw1.row(1).dot(x3D) + tcw1(1);
-            cv::Point2f uv1 = pCamera->project(cv::Point3f(x1, y1, z1));
-            const float errX1 = uv1.x - kp1.pt.x;
-            const float errY1 = uv1.y - kp1.pt.y;
-            if((errX1 * errX1 + errY1 * errY1) > 5.991f * sigmaSquare1)
-                continue;
+                Eigen::Vector3f xn1 = pCamera->unprojectEig(kp1.pt);
+                Eigen::Vector3f xn2 = pCamera->unprojectEig(kp2.pt);
 
-            const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
-            const float x2 = Rcw2.row(0).dot(x3D) + tcw2(0);
-            const float y2 = Rcw2.row(1).dot(x3D) + tcw2(1);
-            cv::Point2f uv2 = pCamera->project(cv::Point3f(x2, y2, z2));
-            const float errX2 = uv2.x - kp2.pt.x;
-            const float errY2 = uv2.y - kp2.pt.y;
-            if((errX2 * errX2 + errY2 * errY2) > 5.991f * sigmaSquare2)
-                continue;
+                Eigen::Vector3f ray1 = Rcw1.transpose() * xn1;
+                Eigen::Vector3f ray2 = Rcw2.transpose() * xn2;
+                const float cosParallaxRays = ray1.dot(ray2) / (ray1.norm() * ray2.norm());
+                if(cosParallaxRays <= 0.0f || cosParallaxRays > 0.9998f)
+                    continue;
 
-            if(!pCamera->epipolarConstrain(pCamera, kp1, kp2, R12, t12, sigmaSquare1, sigmaSquare2))
-                continue;
+                Eigen::Vector3f x3D;
+                Eigen::Matrix<float,3,4> Tc1w = eigTcw1;
+                Eigen::Matrix<float,3,4> Tc2w = eigTcw2;
+                if(!GeometricTools::Triangulate(xn1, xn2, Tc1w, Tc2w, x3D))
+                    continue;
 
-            Eigen::Vector3f normal1 = x3D - Ow1;
-            Eigen::Vector3f normal2 = x3D - Ow2;
-            float dist1 = normal1.norm();
-            float dist2 = normal2.norm();
-            if(dist1 == 0 || dist2 == 0)
-                continue;
+                const float z1 = Rcw1.row(2).dot(x3D) + tcw1(2);
+                if(z1 <= 0)
+                    continue;
 
-            if(mbFarPoints && (dist1 >= mThFarPoints || dist2 >= mThFarPoints))
-                continue;
+                const float z2 = Rcw2.row(2).dot(x3D) + tcw2(2);
+                if(z2 <= 0)
+                    continue;
 
-            const float ratioDist = dist2 / dist1;
-            const float ratioOctave = pKF1->mvScaleFactors[kp1.octave] / pKF2->mvScaleFactors[kp2.octave];
-            if(ratioDist * ratioFactor < ratioOctave || ratioDist > ratioOctave * ratioFactor)
-                continue;
+                const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
+                const float x1 = Rcw1.row(0).dot(x3D) + tcw1(0);
+                const float y1 = Rcw1.row(1).dot(x3D) + tcw1(1);
+                cv::Point2f uv1 = pCamera->project(cv::Point3f(x1, y1, z1));
+                const float errX1 = uv1.x - kp1.pt.x;
+                const float errY1 = uv1.y - kp1.pt.y;
+                if((errX1 * errX1 + errY1 * errY1) > 5.991f * sigmaSquare1)
+                    continue;
 
-            MapPoint* pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpAtlas->GetCurrentMap());
-            pMP->SetPrimaryCamId(camIndex);
-            pMP->AddAuxObservation(pKF1, camIndex, idx1);
-            pMP->AddAuxObservation(mpCurrentKeyFrame, camIndex, idx2);
-            mpAtlas->AddMapPoint(pMP);
-            vCreatedPerCam[camIndex]++;
+                const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
+                const float x2 = Rcw2.row(0).dot(x3D) + tcw2(0);
+                const float y2 = Rcw2.row(1).dot(x3D) + tcw2(1);
+                cv::Point2f uv2 = pCamera->project(cv::Point3f(x2, y2, z2));
+                const float errX2 = uv2.x - kp2.pt.x;
+                const float errY2 = uv2.y - kp2.pt.y;
+                if((errX2 * errX2 + errY2 * errY2) > 5.991f * sigmaSquare2)
+                    continue;
+
+                if(!pCamera->epipolarConstrain(pCamera, kp1, kp2, R12, t12, sigmaSquare1, sigmaSquare2))
+                    continue;
+
+                Eigen::Vector3f normal1 = x3D - Ow1;
+                Eigen::Vector3f normal2 = x3D - Ow2;
+                float dist1 = normal1.norm();
+                float dist2 = normal2.norm();
+                if(dist1 == 0 || dist2 == 0)
+                    continue;
+
+                if(mbFarPoints && (dist1 >= mThFarPoints || dist2 >= mThFarPoints))
+                    continue;
+
+                const float ratioDist = dist2 / dist1;
+                const float ratioOctave = pKF1->mvScaleFactors[kp1.octave] / pKF2->mvScaleFactors[kp2.octave];
+                if(ratioDist * ratioFactor < ratioOctave || ratioDist > ratioOctave * ratioFactor)
+                    continue;
+
+                MapPoint* pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpAtlas->GetCurrentMap());
+                pMP->SetPrimaryCamId(camIndex);
+                pMP->AddAuxObservation(pKF1, camIndex, idx1);
+                pMP->AddAuxObservation(mpCurrentKeyFrame, camIndex, idx2);
+                mpAtlas->AddMapPoint(pMP);
+                vCreatedPerCam[camIndex]++;
+                vNewAuxMPs.push_back(pMP);
+            }
         }
+
+        vPrevKFs.push_front(pKF2);
+        if(vPrevKFs.size() > static_cast<size_t>(mAuxKFWindow))
+            vPrevKFs.pop_back();
     }
 
     for(int camIndex = 0; camIndex < nCams; ++camIndex)
@@ -904,6 +916,94 @@ void LocalMapping::CreateAuxMapPoints()
                   << " matches=" << vMatchesPerCam[camIndex]
                   << " created=" << vCreatedPerCam[camIndex]
                   << std::endl;
+    }
+
+    if(!vNewAuxMPs.empty())
+        OptimizeAuxMapPoints(vNewAuxMPs);
+}
+
+void LocalMapping::OptimizeAuxMapPoints(const std::vector<MapPoint*>& vpMapPoints)
+{
+    if(!mpSettings)
+        return;
+
+    const auto &vTrc = mpSettings->Trc();
+    const auto &vRigCameras = mpSettings->rigCameras();
+    const int maxIterations = 4;
+
+    for(MapPoint* pMP : vpMapPoints)
+    {
+        if(!pMP || pMP->isBad())
+            continue;
+
+        std::vector<MapPoint::AuxObservation> vObs = pMP->GetAuxObservations();
+        if(vObs.size() < 2)
+            continue;
+
+        Eigen::Vector3f Pw = pMP->GetWorldPos();
+
+        for(int iter = 0; iter < maxIterations; ++iter)
+        {
+            Eigen::Matrix3d H = Eigen::Matrix3d::Zero();
+            Eigen::Vector3d b = Eigen::Vector3d::Zero();
+            double totalError = 0.0;
+
+            for(const auto &obs : vObs)
+            {
+                if(!obs.pKF)
+                    continue;
+                const Frame::AuxCamData* data = obs.pKF->GetAuxCamData(obs.camId);
+                if(!data || obs.idx < 0 || obs.idx >= static_cast<int>(data->mvKeys.size()))
+                    continue;
+
+                GeometricCamera* pCamera = nullptr;
+                if(obs.camId < static_cast<int>(vRigCameras.size()) && vRigCameras[obs.camId])
+                    pCamera = vRigCameras[obs.camId];
+                else
+                    pCamera = obs.pKF->mpCamera;
+
+                if(!pCamera)
+                    continue;
+
+                if(obs.camId >= static_cast<int>(vTrc.size()))
+                    continue;
+
+                const Sophus::SE3f Twr = obs.pKF->GetPose().inverse();
+                const Sophus::SE3f Twc = Twr * vTrc[obs.camId];
+                const Sophus::SE3f Tcw = Twc.inverse();
+
+                const Eigen::Matrix3f Rcw = Tcw.rotationMatrix();
+                const Eigen::Vector3f tcw = Tcw.translation();
+                Eigen::Vector3f Pc = Rcw * Pw + tcw;
+                if(Pc.z() <= 0.0f)
+                    continue;
+
+                const cv::KeyPoint &kp = data->mvKeys[obs.idx];
+                cv::Point2f uv = pCamera->project(cv::Point3f(Pc.x(), Pc.y(), Pc.z()));
+                const double ex = uv.x - kp.pt.x;
+                const double ey = uv.y - kp.pt.y;
+                totalError += ex * ex + ey * ey;
+
+                Eigen::Vector3d Pcd = Pc.cast<double>();
+                Eigen::Matrix<double,2,3> Jproj = pCamera->projectJac(Pcd);
+                Eigen::Matrix<double,2,3> J = Jproj * Rcw.cast<double>();
+
+                Eigen::Vector2d e(ex, ey);
+                H += J.transpose() * J;
+                b += -J.transpose() * e;
+            }
+
+            Eigen::Vector3d delta = H.ldlt().solve(b);
+            if(!delta.allFinite())
+                break;
+
+            Pw += delta.cast<float>();
+            if(delta.norm() < 1e-4)
+                break;
+        }
+
+        pMP->SetWorldPos(Pw);
+        pMP->UpdateNormalAndDepth();
     }
 }
 

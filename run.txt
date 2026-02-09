@@ -20,3 +20,11 @@ awk '{print $1 ,$3}' /home/yanwq/project/dataset_dis/association.txt > /home/yan
 Vocabulary/ORBvoc.txt \
 Config/multi_undistort_fisheye.yaml \
 /home/yanwq/project/dataset_dis \
+
+
+./Examples/MultiCamera/multi_fisheye \
+Vocabulary/ORBvoc.txt \
+Config/multi_undistort_fisheye.yaml \
+/home/yanwq/project002/undistort_294/association.txt \
+RigTrajectory.txt \
+/home/yanwq/project/output2

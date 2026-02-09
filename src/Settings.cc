@@ -604,6 +604,7 @@ namespace ORB_SLAM3 {
         // Rig is defined to coincide with main camera: T_{r<-c0} = I
         vTrc_[mainCamIndex_] = Sophus::SE3f();
 
+
         std::cout << "Rig extrinsics (T_r<-c_i):" << std::endl;
         for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
         {

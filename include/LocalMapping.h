@@ -28,6 +28,7 @@
 #include "Settings.h"
 
 #include <mutex>
+#include <deque>
 
 
 namespace ORB_SLAM3
@@ -135,6 +136,7 @@ protected:
     void ProcessNewKeyFrame();
     void CreateNewMapPoints();
     void CreateAuxMapPoints();
+    void OptimizeAuxMapPoints(const std::vector<MapPoint*>& vpMapPoints);
 
     void MapPointCulling();
     void SearchInNeighbors();
@@ -163,7 +165,8 @@ protected:
     Tracking* mpTracker;
 
     Settings* mpSettings;
-    std::vector<KeyFrame*> mvLastAuxKeyFrames;
+    int mAuxKFWindow = 3;
+    std::vector<std::deque<KeyFrame*>> mvAuxKeyFrames;
 
     std::list<KeyFrame*> mlNewKeyFrames;
 
