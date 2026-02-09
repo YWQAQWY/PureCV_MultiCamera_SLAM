@@ -512,6 +512,7 @@ namespace ORB_SLAM3 {
 
         vTbc_.clear();
         vTbc_.reserve(nCameras_);
+        bool twcIsBodyToCamera = readParameter<int>(fSettings, "Rig.twc_is_body_to_camera", found, false);
         for(int camIndex = 0; camIndex < nCameras_; ++camIndex){
             std::ostringstream key;
             key << "Camera" << camIndex << ".Twc";
@@ -521,7 +522,13 @@ namespace ORB_SLAM3 {
                 vTbc_.push_back(Sophus::SE3f());
                 continue;
             }
-            vTbc_.push_back(Converter::toSophus(cvTbc));
+            Sophus::SE3f Tbc = Converter::toSophus(cvTbc);
+            if(twcIsBodyToCamera)
+            {
+                // Provided as T_{c<-b}, invert to T_{b<-c}
+                Tbc = Tbc.inverse();
+            }
+            vTbc_.push_back(Tbc);
         }
 
         vRigCameras_.clear();
@@ -596,6 +603,42 @@ namespace ORB_SLAM3 {
         }
         // Rig is defined to coincide with main camera: T_{r<-c0} = I
         vTrc_[mainCamIndex_] = Sophus::SE3f();
+
+        bool normalizeExtrinsics = readParameter<int>(fSettings, "Rig.normalize_extrinsics", found, false);
+        float extrinsicScale = readParameter<float>(fSettings, "Rig.extrinsic_scale", found, false);
+        if(found)
+        {
+            for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
+            {
+                Eigen::Vector3f t = vTrc_[camIndex].translation();
+                vTrc_[camIndex].translation() = t * extrinsicScale;
+            }
+        }
+        else if(normalizeExtrinsics)
+        {
+            float sumBaseline = 0.0f;
+            int count = 0;
+            for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
+            {
+                if(camIndex == mainCamIndex_)
+                    continue;
+                const float norm = vTrc_[camIndex].translation().norm();
+                if(norm > 1e-6f)
+                {
+                    sumBaseline += norm;
+                    ++count;
+                }
+            }
+            if(count > 0)
+            {
+                const float scale = 1.0f / (sumBaseline / static_cast<float>(count));
+                for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
+                {
+                    Eigen::Vector3f t = vTrc_[camIndex].translation();
+                    vTrc_[camIndex].translation() = t * scale;
+                }
+            }
+        }
     }
 
     void Settings::precomputeRectificationMaps() {

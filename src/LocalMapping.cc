@@ -775,6 +775,9 @@ void LocalMapping::CreateAuxMapPoints()
         const Sophus::SE3f Twc2 = Twr2 * vTrc[camIndex];
         const Sophus::SE3f Tcw1 = Twc1.inverse();
         const Sophus::SE3f Tcw2 = Twc2.inverse();
+        const Sophus::SE3f T12 = Tcw1 * Twc2;
+        const Eigen::Matrix3f R12 = T12.rotationMatrix();
+        const Eigen::Vector3f t12 = T12.translation();
 
         const Eigen::Matrix<float,3,4> eigTcw1 = Tcw1.matrix3x4();
         const Eigen::Matrix<float,3,4> eigTcw2 = Tcw2.matrix3x4();
@@ -848,6 +851,9 @@ void LocalMapping::CreateAuxMapPoints()
             const float errX2 = uv2.x - kp2.pt.x;
             const float errY2 = uv2.y - kp2.pt.y;
             if((errX2 * errX2 + errY2 * errY2) > 5.991f * sigmaSquare2)
+                continue;
+
+            if(!pCamera->epipolarConstrain(pCamera, kp1, kp2, R12, t12, sigmaSquare1, sigmaSquare2))
                 continue;
 
             Eigen::Vector3f normal1 = x3D - Ow1;

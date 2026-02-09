@@ -122,6 +122,10 @@ int main(int argc, char **argv)
 
     for(int ni = 0; ni < nImages; ni++)
     {
+        if(ni % 10 == 0)
+        {
+            cout << "Processing frame " << ni << "/" << nImages << endl;
+        }
         vector<cv::Mat> vImGray(4);
         const double tframe = vTimestamps[ni];
 
@@ -164,6 +168,15 @@ int main(int argc, char **argv)
 #endif
 
         SLAM.TrackMultiCamera(vImGray, tframe);
+        const int trackingState = SLAM.GetTrackingState();
+        if(trackingState == ORB_SLAM3::Tracking::LOST || trackingState == ORB_SLAM3::Tracking::RECENTLY_LOST)
+        {
+            cout << "[LostTracking] frame=" << ni
+                 << " timestamp=" << fixed << setprecision(6) << tframe
+                 << " state=" << trackingState
+                 << " main_image=" << vstrImageFilenames[mainCamIndex][ni]
+                 << endl;
+        }
 
 #ifdef COMPILEDWITHC11
         std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();

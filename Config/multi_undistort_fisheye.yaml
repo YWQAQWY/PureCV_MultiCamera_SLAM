@@ -79,6 +79,9 @@ Rig.gate_delta: 0.8
 Rig.gate_ref_inliers: 15
 Rig.gate_min_weight: 0.2
 Rig.gate_robust_scale: 0.7
+Rig.normalize_extrinsics: 1
+# Rig.extrinsic_scale: 1.0
+# Rig.twc_is_body_to_camera: 0
 
 # Extrinsics: 
 Camera0.Twc: !!opencv-matrix
