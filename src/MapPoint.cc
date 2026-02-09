@@ -181,6 +181,22 @@ std::vector<MapPoint::AuxObservation> MapPoint::GetAuxObservations()
     return mvAuxObservations;
 }
 
+int MapPoint::AuxObservations()
+{
+    unique_lock<mutex> lock(mMutexFeatures);
+    return static_cast<int>(mvAuxObservations.size());
+}
+
+void MapPoint::SetPrimaryCamId(int camId)
+{
+    mPrimaryCamId = camId;
+}
+
+int MapPoint::PrimaryCamId() const
+{
+    return mPrimaryCamId;
+}
+
 void MapPoint::EraseObservation(KeyFrame* pKF)
 {
     bool bBad=false;

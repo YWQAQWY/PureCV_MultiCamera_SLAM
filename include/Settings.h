@@ -123,6 +123,11 @@ namespace ORB_SLAM3 {
         const std::vector<Sophus::SE3f>& Tbc() const {return vTbc_;}
         const std::vector<Sophus::SE3f>& Trc() const {return vTrc_;}
         const std::vector<GeometricCamera*>& rigCameras() const {return vRigCameras_;}
+        bool enableAuxMapPoints() const {return enableAuxMapPoints_;}
+        int minMapPointObservations() const {return minMapPointObservations_;}
+        float minMapPointFoundRatio() const {return minMapPointFoundRatio_;}
+        float maxMapPointDepth() const {return maxMapPointDepth_;}
+        int minAuxMapPointObservations() const {return minAuxMapPointObservations_;}
 
         cv::Mat M1l() {return M1l_;}
         cv::Mat M2l() {return M2l_;}
@@ -243,6 +248,11 @@ namespace ORB_SLAM3 {
         // T_{r<-c_i}: camera -> rig (rig == main camera)
         std::vector<Sophus::SE3f> vTrc_;
         std::vector<GeometricCamera*> vRigCameras_;
+        bool enableAuxMapPoints_ = true;
+        int minMapPointObservations_ = 2;
+        float minMapPointFoundRatio_ = 0.25f;
+        float maxMapPointDepth_ = 50.0f;
+        int minAuxMapPointObservations_ = 2;
 
     };
 };

@@ -137,6 +137,9 @@ public:
 
     void AddAuxObservation(KeyFrame* pKF, int camId, int idx);
     std::vector<AuxObservation> GetAuxObservations();
+    int AuxObservations();
+    void SetPrimaryCamId(int camId);
+    int PrimaryCamId() const;
 
     void SetBadFlag();
     bool isBad();
@@ -176,6 +179,7 @@ public:
     long int mnFirstKFid;
     long int mnFirstFrame;
     int nObs;
+    int mPrimaryCamId = -1;
 
     // Variables used by the tracking
     float mTrackProjX;

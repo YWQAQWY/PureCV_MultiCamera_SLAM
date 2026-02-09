@@ -724,11 +724,17 @@ void System::SaveRigTrajectoryTUM(const string &filename)
     list<ORB_SLAM3::KeyFrame*>::iterator lRit = mpTracker->mlpReferences.begin();
     list<double>::iterator lT = mpTracker->mlFrameTimes.begin();
     list<bool>::iterator lbL = mpTracker->mlbLost.begin();
+    size_t lostCount = 0;
     for(list<Sophus::SE3f>::iterator lit=mpTracker->mlRelativeFramePoses.begin(),
         lend=mpTracker->mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++, lbL++)
     {
         if(*lbL)
+        {
+            lostCount++;
+            f << setprecision(6) << *lT << " " <<  setprecision(9)
+              << "nan nan nan nan nan nan nan" << endl;
             continue;
+        }
 
         KeyFrame* pKF = *lRit;
         Sophus::SE3f Trw;
@@ -754,6 +760,7 @@ void System::SaveRigTrajectoryTUM(const string &filename)
           << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << endl;
     }
     f.close();
+    cout << "Saved rig trajectory. Lost frames: " << lostCount << endl;
 }
 
 void System::SaveMapPointsXYZ(const string &filename)
@@ -765,11 +772,29 @@ void System::SaveMapPointsXYZ(const string &filename)
     f.open(filename.c_str());
     f << fixed;
 
+    const int minObs = settings_ ? settings_->minMapPointObservations() : 2;
+    const int minAuxObs = settings_ ? settings_->minAuxMapPointObservations() : 2;
+    const float minFoundRatio = settings_ ? settings_->minMapPointFoundRatio() : 0.25f;
+    const float maxDepth = settings_ ? settings_->maxMapPointDepth() : 50.0f;
+
     for(MapPoint* pMP : vpMPs)
     {
         if(!pMP || pMP->isBad())
             continue;
+        const int obs = pMP->Observations();
+        const int auxObs = pMP->AuxObservations();
+        if(obs > 0)
+        {
+            if(obs < minObs)
+                continue;
+        }
+        else if(auxObs < minAuxObs)
+            continue;
+        if(obs > 0 && pMP->GetFoundRatio() < minFoundRatio)
+            continue;
         Eigen::Vector3f pos = pMP->GetWorldPos();
+        if(maxDepth > 0.0f && pos.norm() > maxDepth)
+            continue;
         f << setprecision(9) << pos.x() << " " << pos.y() << " " << pos.z() << endl;
     }
     f.close();

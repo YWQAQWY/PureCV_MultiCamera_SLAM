@@ -42,9 +42,11 @@ public:
     void newParameterLoader(Settings* settings);
 
     Atlas* mpAtlas;
+    Settings* mpSettings = nullptr;
 
     void DrawMapPoints();
     void DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const bool bDrawInertialGraph, const bool bDrawOptLba);
+    void DrawTrajectory();
     void DrawCurrentCamera(pangolin::OpenGlMatrix &Twc);
     void SetCurrentCameraPose(const Sophus::SE3f &Tcw);
     void SetReferenceKeyFrame(KeyFrame *pKF);

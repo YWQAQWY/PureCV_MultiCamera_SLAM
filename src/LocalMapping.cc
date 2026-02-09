@@ -699,6 +699,8 @@ void LocalMapping::CreateNewMapPoints()
 
             // Triangulation is succesfull
             MapPoint* pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpAtlas->GetCurrentMap());
+            if(mpSettings)
+                pMP->SetPrimaryCamId(mpSettings->mainCamIndex());
             if (bPointStereo)
                 countStereo++;
             
@@ -723,6 +725,9 @@ void LocalMapping::CreateAuxMapPoints()
     if(!mpSettings)
         return;
 
+    if(!mpSettings->enableAuxMapPoints())
+        return;
+
     const int nCams = mpSettings->numCameras();
     if(nCams <= 1)
         return;
@@ -735,6 +740,8 @@ void LocalMapping::CreateAuxMapPoints()
     const auto &vRigCameras = mpSettings->rigCameras();
 
     KeyFrame* pKF2 = mpCurrentKeyFrame;
+    std::vector<int> vMatchesPerCam(nCams, 0);
+    std::vector<int> vCreatedPerCam(nCams, 0);
 
     for(int camIndex = 0; camIndex < nCams; ++camIndex)
     {
@@ -744,6 +751,8 @@ void LocalMapping::CreateAuxMapPoints()
         const Frame::AuxCamData* data2 = pKF2->GetAuxCamData(camIndex);
         if(!data2 || data2->mDescriptors.empty())
         {
+            std::cout << "[AuxMapPoints] KF=" << pKF2->mnId << " cam=" << camIndex
+                      << " no descriptors on current KF" << std::endl;
             mvLastAuxKeyFrames[camIndex] = pKF2;
             continue;
         }
@@ -755,7 +764,11 @@ void LocalMapping::CreateAuxMapPoints()
 
         const Frame::AuxCamData* data1 = pKF1->GetAuxCamData(camIndex);
         if(!data1 || data1->mDescriptors.empty())
+        {
+            std::cout << "[AuxMapPoints] KF=" << pKF2->mnId << " cam=" << camIndex
+                      << " no descriptors on last KF" << std::endl;
             continue;
+        }
 
         GeometricCamera* pCamera = nullptr;
         if(camIndex < static_cast<int>(vRigCameras.size()) && vRigCameras[camIndex])
@@ -801,6 +814,7 @@ void LocalMapping::CreateAuxMapPoints()
 
         for(const auto &match : matches)
         {
+            vMatchesPerCam[camIndex]++;
             if(match.distance > 40)
                 continue;
 
@@ -872,10 +886,24 @@ void LocalMapping::CreateAuxMapPoints()
                 continue;
 
             MapPoint* pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpAtlas->GetCurrentMap());
+            pMP->SetPrimaryCamId(camIndex);
             pMP->AddAuxObservation(pKF1, camIndex, idx1);
             pMP->AddAuxObservation(mpCurrentKeyFrame, camIndex, idx2);
             mpAtlas->AddMapPoint(pMP);
+            vCreatedPerCam[camIndex]++;
         }
+    }
+
+    for(int camIndex = 0; camIndex < nCams; ++camIndex)
+    {
+        if(camIndex == mainCam)
+            continue;
+        if(vMatchesPerCam[camIndex] == 0 && vCreatedPerCam[camIndex] == 0)
+            continue;
+        std::cout << "[AuxMapPoints] KF=" << pKF2->mnId << " cam=" << camIndex
+                  << " matches=" << vMatchesPerCam[camIndex]
+                  << " created=" << vCreatedPerCam[camIndex]
+                  << std::endl;
     }
 }
 

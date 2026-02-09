@@ -53,6 +53,9 @@ int main(int argc, char **argv)
     string camFolders[4] = {string(), string(), string(), string()};
     string listFile;
     bool useFolders = false;
+    string fileName;
+    string outputDir;
+
     if(argc >= 8)
     {
         useFolders = true;
@@ -61,28 +64,25 @@ int main(int argc, char **argv)
         camFolders[2] = string(argv[5]);
         camFolders[3] = string(argv[6]);
         listFile = string(argv[7]);
+
+        if(argc >= 9)
+            fileName = string(argv[8]);
+        if(argc == 10)
+            outputDir = string(argv[9]);
     }
     else
     {
         listFile = string(argv[3]);
+        if(argc >= 5)
+            fileName = string(argv[4]);
+        if(argc == 6)
+            outputDir = string(argv[5]);
     }
 
-    bool bFileName = (argc == 5 || argc == 9 || argc == 6 || argc == 10);
-    bool bOutDir = (argc == 6 || argc == 10);
-    string fileName;
-    if(bFileName)
-    {
-        fileName = string(argv[argc - 1]);
+    if(!fileName.empty())
         cout << "trajectory file: " << fileName << endl;
-    }
-
-    string outputDir;
-    if(bOutDir)
-    {
-        outputDir = string(argv[argc - 1]);
-        if(!outputDir.empty() && outputDir.back() == '/')
-            outputDir.pop_back();
-    }
+    if(!outputDir.empty() && outputDir.back() == '/')
+        outputDir.pop_back();
 
     vector<vector<string>> vstrImageFilenames(4);
     vector<double> vTimestamps;
@@ -95,7 +95,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    ORB_SLAM3::System SLAM(argv[1], argv[2], ORB_SLAM3::System::MONOCULAR, false);
+    ORB_SLAM3::System SLAM(argv[1], argv[2], ORB_SLAM3::System::MONOCULAR, true);
     const float imageScale = SLAM.GetImageScale();
 
     const int numCams = SLAM.GetNumCameras();
@@ -204,7 +204,7 @@ int main(int argc, char **argv)
 
     SLAM.Shutdown();
 
-    const string rigTrajectory = bFileName ? fileName : "RigTrajectory.txt";
+    const string rigTrajectory = fileName.empty() ? "RigTrajectory.txt" : fileName;
     const string rigPath = outputDir.empty() ? rigTrajectory : (outputDir + "/" + rigTrajectory);
     const string mapPath = outputDir.empty() ? string("MapPoints.xyz") : (outputDir + "/MapPoints.xyz");
 

@@ -21,12 +21,13 @@
 #include "KeyFrame.h"
 #include <pangolin/pangolin.h>
 #include <mutex>
+#include <algorithm>
 
 namespace ORB_SLAM3
 {
 
 
-MapDrawer::MapDrawer(Atlas* pAtlas, const string &strSettingPath, Settings* settings):mpAtlas(pAtlas)
+MapDrawer::MapDrawer(Atlas* pAtlas, const string &strSettingPath, Settings* settings):mpAtlas(pAtlas), mpSettings(settings)
 {
     if(settings){
         newParameterLoader(settings);
@@ -51,6 +52,7 @@ MapDrawer::MapDrawer(Atlas* pAtlas, const string &strSettingPath, Settings* sett
 }
 
 void MapDrawer::newParameterLoader(Settings *settings) {
+    mpSettings = settings;
     mKeyFrameSize = settings->keyFrameSize();
     mKeyFrameLineWidth = settings->keyFrameLineWidth();
     mGraphLineWidth = settings->graphLineWidth();
@@ -140,6 +142,7 @@ void MapDrawer::DrawMapPoints()
 
     const vector<MapPoint*> &vpMPs = pActiveMap->GetAllMapPoints();
     const vector<MapPoint*> &vpRefMPs = pActiveMap->GetReferenceMapPoints();
+    const long unsigned int initKFid = pActiveMap->GetInitKFid();
 
     set<MapPoint*> spRefMPs(vpRefMPs.begin(), vpRefMPs.end());
 
@@ -150,11 +153,48 @@ void MapDrawer::DrawMapPoints()
     glBegin(GL_POINTS);
     glColor3f(0.0,0.0,0.0);
 
+    const int minObs = mpSettings ? mpSettings->minMapPointObservations() : 2;
+    const int minAuxObs = mpSettings ? mpSettings->minAuxMapPointObservations() : 2;
+    const float minFoundRatio = mpSettings ? mpSettings->minMapPointFoundRatio() : 0.25f;
+    const float maxDepth = mpSettings ? mpSettings->maxMapPointDepth() : 50.0f;
+
+    const int mainCam = mpSettings ? mpSettings->mainCamIndex() : 0;
+
     for(size_t i=0, iend=vpMPs.size(); i<iend;i++)
     {
         if(vpMPs[i]->isBad() || spRefMPs.count(vpMPs[i]))
             continue;
+        if(vpMPs[i]->mnFirstKFid <= static_cast<long int>(initKFid))
+            continue;
+        const int obs = vpMPs[i]->Observations();
+        const int auxObs = vpMPs[i]->AuxObservations();
+        if(obs > 0)
+        {
+            if(obs < minObs)
+                continue;
+        }
+        else if(auxObs < minAuxObs)
+            continue;
+        if(obs > 0 && vpMPs[i]->GetFoundRatio() < minFoundRatio)
+            continue;
         Eigen::Matrix<float,3,1> pos = vpMPs[i]->GetWorldPos();
+        if(maxDepth > 0.0f && pos.norm() > maxDepth)
+            continue;
+        int camId = vpMPs[i]->PrimaryCamId();
+        if(camId < 0)
+            camId = mainCam;
+        if(camId == mainCam)
+            glColor3f(0.0f, 0.6f, 0.0f);
+        else if(camId == 0)
+            glColor3f(0.8f, 0.1f, 0.1f);
+        else if(camId == 1)
+            glColor3f(0.1f, 0.4f, 0.9f);
+        else if(camId == 2)
+            glColor3f(0.9f, 0.6f, 0.1f);
+        else if(camId == 3)
+            glColor3f(0.6f, 0.1f, 0.7f);
+        else
+            glColor3f(0.2f, 0.2f, 0.2f);
         glVertex3f(pos(0),pos(1),pos(2));
     }
     glEnd();
@@ -167,7 +207,37 @@ void MapDrawer::DrawMapPoints()
     {
         if((*sit)->isBad())
             continue;
+        if((*sit)->mnFirstKFid <= static_cast<long int>(initKFid))
+            continue;
+        const int obs = (*sit)->Observations();
+        const int auxObs = (*sit)->AuxObservations();
+        if(obs > 0)
+        {
+            if(obs < minObs)
+                continue;
+        }
+        else if(auxObs < minAuxObs)
+            continue;
+        if(obs > 0 && (*sit)->GetFoundRatio() < minFoundRatio)
+            continue;
         Eigen::Matrix<float,3,1> pos = (*sit)->GetWorldPos();
+        if(maxDepth > 0.0f && pos.norm() > maxDepth)
+            continue;
+        int camId = (*sit)->PrimaryCamId();
+        if(camId < 0)
+            camId = mainCam;
+        if(camId == mainCam)
+            glColor3f(0.0f, 0.6f, 0.0f);
+        else if(camId == 0)
+            glColor3f(0.8f, 0.1f, 0.1f);
+        else if(camId == 1)
+            glColor3f(0.1f, 0.4f, 0.9f);
+        else if(camId == 2)
+            glColor3f(0.9f, 0.6f, 0.1f);
+        else if(camId == 3)
+            glColor3f(0.6f, 0.1f, 0.7f);
+        else
+            glColor3f(0.2f, 0.2f, 0.2f);
         glVertex3f(pos(0),pos(1),pos(2));
 
     }
@@ -393,6 +463,35 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
             }
         }
     }
+}
+
+void MapDrawer::DrawTrajectory()
+{
+    Map* pActiveMap = mpAtlas->GetCurrentMap();
+    if(!pActiveMap)
+        return;
+
+    const vector<KeyFrame*> vpKFs = pActiveMap->GetAllKeyFrames();
+    if(vpKFs.empty())
+        return;
+
+    vector<KeyFrame*> vpSorted = vpKFs;
+    sort(vpSorted.begin(), vpSorted.end(), KeyFrame::lId);
+
+    glLineWidth(mGraphLineWidth * 2.5f);
+    glColor3f(0.0f, 0.8f, 0.0f);
+    glBegin(GL_LINE_STRIP);
+    const long unsigned int initKFid = pActiveMap->GetInitKFid();
+    for(KeyFrame* pKF : vpSorted)
+    {
+        if(!pKF || pKF->isBad())
+            continue;
+        if(pKF->mnId <= initKFid)
+            continue;
+        Eigen::Vector3f Ow = pKF->GetCameraCenter();
+        glVertex3f(Ow(0), Ow(1), Ow(2));
+    }
+    glEnd();
 }
 
 void MapDrawer::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc)

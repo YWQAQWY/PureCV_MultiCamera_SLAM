@@ -604,8 +604,32 @@ namespace ORB_SLAM3 {
         // Rig is defined to coincide with main camera: T_{r<-c0} = I
         vTrc_[mainCamIndex_] = Sophus::SE3f();
 
+        std::cout << "Rig extrinsics (T_r<-c_i):" << std::endl;
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
+        {
+            Eigen::Matrix4f Trc = vTrc_[camIndex].matrix();
+            std::cout << "Camera" << camIndex << ":\n" << Trc << std::endl;
+        }
+
         bool normalizeExtrinsics = readParameter<int>(fSettings, "Rig.normalize_extrinsics", found, false);
         float extrinsicScale = readParameter<float>(fSettings, "Rig.extrinsic_scale", found, false);
+        enableAuxMapPoints_ = true;
+        int auxFlag = readParameter<int>(fSettings, "Rig.enable_aux_mappoints", found, false);
+        if(found)
+            enableAuxMapPoints_ = (auxFlag != 0);
+
+        minMapPointObservations_ = readParameter<int>(fSettings, "Rig.min_mappoint_observations", found, false);
+        if(!found)
+            minMapPointObservations_ = 2;
+        minMapPointFoundRatio_ = readParameter<float>(fSettings, "Rig.min_mappoint_found_ratio", found, false);
+        if(!found)
+            minMapPointFoundRatio_ = 0.25f;
+        maxMapPointDepth_ = readParameter<float>(fSettings, "Rig.max_mappoint_depth", found, false);
+        if(!found)
+            maxMapPointDepth_ = 50.0f;
+        minAuxMapPointObservations_ = readParameter<int>(fSettings, "Rig.min_aux_mappoint_observations", found, false);
+        if(!found)
+            minAuxMapPointObservations_ = 2;
         if(found)
         {
             for(int camIndex = 0; camIndex < nCameras_; ++camIndex)

@@ -173,22 +173,19 @@ void Viewer::Run()
     glEnable (GL_BLEND);
     glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    pangolin::CreatePanel("menu").SetBounds(0.0,1.0,0.0,pangolin::Attach::Pix(175));
-    pangolin::Var<bool> menuFollowCamera("menu.Follow Camera",false,true);
-    pangolin::Var<bool> menuCamView("menu.Camera View",false,false);
-    pangolin::Var<bool> menuTopView("menu.Top View",false,false);
-    // pangolin::Var<bool> menuSideView("menu.Side View",false,false);
-    pangolin::Var<bool> menuShowPoints("menu.Show Points",true,true);
-    pangolin::Var<bool> menuShowKeyFrames("menu.Show KeyFrames",true,true);
-    pangolin::Var<bool> menuShowGraph("menu.Show Graph",false,true);
-    pangolin::Var<bool> menuShowInertialGraph("menu.Show Inertial Graph",true,true);
-    pangolin::Var<bool> menuLocalizationMode("menu.Localization Mode",false,true);
-    pangolin::Var<bool> menuReset("menu.Reset",false,false);
-    pangolin::Var<bool> menuStop("menu.Stop",false,false);
-    pangolin::Var<bool> menuStepByStep("menu.Step By Step",false,true);  // false, true
-    pangolin::Var<bool> menuStep("menu.Step",false,false);
-
-    pangolin::Var<bool> menuShowOptLba("menu.Show LBA opt", false, true);
+    bool menuFollowCamera = false;
+    bool menuCamView = false;
+    bool menuTopView = false;
+    bool menuShowPoints = true;
+    bool menuShowKeyFrames = false;
+    bool menuShowGraph = false;
+    bool menuShowInertialGraph = false;
+    bool menuLocalizationMode = false;
+    bool menuReset = false;
+    bool menuStop = false;
+    bool menuStepByStep = false;
+    bool menuStep = false;
+    bool menuShowOptLba = false;
     // Define Camera Render Object (for view / scene browsing)
     pangolin::OpenGlRenderState s_cam(
                 pangolin::ProjectionMatrix(1024,768,mViewpointF,mViewpointF,512,389,0.1,1000),
@@ -197,16 +194,16 @@ void Viewer::Run()
 
     // Add named OpenGL viewport to window and provide 3D Handler
     pangolin::View& d_cam = pangolin::CreateDisplay()
-            .SetBounds(0.0, 1.0, pangolin::Attach::Pix(175), 1.0, -1024.0f/768.0f)
+            .SetBounds(0.0, 1.0, 0.0, 1.0, -1024.0f/768.0f)
             .SetHandler(new pangolin::Handler3D(s_cam));
 
     pangolin::OpenGlMatrix Twc, Twr;
     Twc.SetIdentity();
     pangolin::OpenGlMatrix Ow; // Oriented with g in the z axis
     Ow.SetIdentity();
-    cv::namedWindow("ORB-SLAM3: Current Frame");
+    const bool showFrameWindow = false;
 
-    bool bFollow = true;
+    bool bFollow = false;
     bool bLocalizationMode = false;
     bool bStepByStep = false;
     bool bCameraView = true;
@@ -309,34 +306,35 @@ void Viewer::Run()
 
         d_cam.Activate(s_cam);
         glClearColor(1.0f,1.0f,1.0f,1.0f);
-        mpMapDrawer->DrawCurrentCamera(Twc);
-        if(menuShowKeyFrames || menuShowGraph || menuShowInertialGraph || menuShowOptLba)
-            mpMapDrawer->DrawKeyFrames(menuShowKeyFrames,menuShowGraph, menuShowInertialGraph, menuShowOptLba);
         if(menuShowPoints)
             mpMapDrawer->DrawMapPoints();
+        mpMapDrawer->DrawTrajectory();
 
         pangolin::FinishFrame();
 
-        cv::Mat toShow;
-        cv::Mat im = mpFrameDrawer->DrawFrame(trackedImageScale);
-
-        if(both){
-            cv::Mat imRight = mpFrameDrawer->DrawRightFrame(trackedImageScale);
-            cv::hconcat(im,imRight,toShow);
-        }
-        else{
-            toShow = im;
-        }
-
-        if(mImageViewerScale != 1.f)
+        if(showFrameWindow)
         {
-            int width = toShow.cols * mImageViewerScale;
-            int height = toShow.rows * mImageViewerScale;
-            cv::resize(toShow, toShow, cv::Size(width, height));
-        }
+            cv::Mat toShow;
+            cv::Mat im = mpFrameDrawer->DrawFrame(trackedImageScale);
 
-        cv::imshow("ORB-SLAM3: Current Frame",toShow);
-        cv::waitKey(mT);
+            if(both){
+                cv::Mat imRight = mpFrameDrawer->DrawRightFrame(trackedImageScale);
+                cv::hconcat(im,imRight,toShow);
+            }
+            else{
+                toShow = im;
+            }
+
+            if(mImageViewerScale != 1.f)
+            {
+                int width = toShow.cols * mImageViewerScale;
+                int height = toShow.rows * mImageViewerScale;
+                cv::resize(toShow, toShow, cv::Size(width, height));
+            }
+
+            cv::imshow("ORB-SLAM3: Current Frame",toShow);
+            cv::waitKey(mT);
+        }
 
         if(menuReset)
         {

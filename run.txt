@@ -13,3 +13,10 @@ Config/multi_undistort_fisheye.yaml \
 /home/yanwq/project/dataset_dis/association.txt \
 RigTrajectory.txt \
 /home/yanwq/project/output1
+
+awk '{print $1 ,$3}' /home/yanwq/project/dataset_dis/association.txt > /home/yanwq/project/dataset_dis/front_only.txt
+
+./Examples/Monocular/mono_tum \
+Vocabulary/ORBvoc.txt \
+Config/multi_undistort_fisheye.yaml \
+/home/yanwq/project/dataset_dis \
