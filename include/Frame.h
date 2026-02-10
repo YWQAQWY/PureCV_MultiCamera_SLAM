@@ -58,6 +58,7 @@ public:
         int camId = -1;
         GeometricCamera* mpCamera = nullptr;
         std::vector<cv::KeyPoint> mvKeys;
+        std::vector<cv::KeyPoint> mvKeysUn;
         cv::Mat mDescriptors;
     };
     Frame();
@@ -81,6 +82,10 @@ public:
     void ExtractORB(int flag, const cv::Mat &im, const int x0, const int x1);
 
     const AuxCamData* GetAuxCamData(const int camId) const;
+    int GetMainCamIndex() const {return mMainCamIndex;}
+    GeometricCamera* GetCameraForCamId(const int camId) const;
+    const std::vector<cv::KeyPoint>& GetKeysForCamId(const int camId) const;
+    const std::vector<cv::KeyPoint>& GetKeysUnForCamId(const int camId) const;
 
     // Compute Bag of Words representation.
     void ComputeBoW();
@@ -129,6 +134,9 @@ public:
 
     // Backprojects a keypoint (if stereo/depth info available) into 3D world coordinates.
     bool UnprojectStereo(const int &i, Eigen::Vector3f &x3D);
+
+    // Assign keypoints to the grid for speed up feature matching (called in the constructor).
+    void AssignFeaturesToGrid();
 
     ConstraintPoseImu* mpcpi;
 
@@ -251,6 +259,7 @@ public:
     cv::Mat mDescriptors, mDescriptorsRight;
 
     std::vector<AuxCamData> mvAuxCamData;
+    int mMainCamIndex = 0;
 
     // MapPoints associated to keypoints, NULL pointer if no association.
     // Flag to identify outlier associations.
@@ -324,8 +333,6 @@ private:
     // Computes image bounds for the undistorted image (called in the constructor).
     void ComputeImageBounds(const cv::Mat &imLeft);
 
-    // Assign keypoints to the grid for speed up feature matching (called in the constructor).
-    void AssignFeaturesToGrid();
 
     bool mbIsSet;
 

@@ -304,6 +304,10 @@ public:
     void SetKeyFrameDatabase(KeyFrameDatabase* pKFDB);
 
     const Frame::AuxCamData* GetAuxCamData(const int camId) const;
+    int GetMainCamIndex() const {return mMainCamIndex;}
+    GeometricCamera* GetCameraForCamId(const int camId) const;
+    const std::vector<cv::KeyPoint>& GetKeysForCamId(const int camId) const;
+    const std::vector<cv::KeyPoint>& GetKeysUnForCamId(const int camId) const;
 
     bool bImu;
 
@@ -460,6 +464,7 @@ protected:
     std::vector< std::vector <std::vector<size_t> > > mGrid;
 
     std::vector<Frame::AuxCamData> mvAuxCamData;
+    int mMainCamIndex = 0;
 
     std::map<KeyFrame*,int> mConnectedKeyFrameWeights;
     std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;

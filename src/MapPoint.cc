@@ -140,6 +140,14 @@ KeyFrame* MapPoint::GetReferenceKeyFrame()
 
 void MapPoint::AddObservation(KeyFrame* pKF, int idx)
 {
+    int camId = 0;
+    if(pKF)
+        camId = pKF->GetMainCamIndex();
+    AddObservation(pKF, idx, camId);
+}
+
+void MapPoint::AddObservation(KeyFrame* pKF, int idx, int camId)
+{
     unique_lock<mutex> lock(mMutexFeatures);
     tuple<int,int> indexes;
 
@@ -158,6 +166,7 @@ void MapPoint::AddObservation(KeyFrame* pKF, int idx)
     }
 
     mObservations[pKF]=indexes;
+    mObservationCamIds[pKF]=camId;
 
     if(!pKF->mpCamera2 && pKF->mvuRight[idx]>=0)
         nObs+=2;
@@ -218,6 +227,7 @@ void MapPoint::EraseObservation(KeyFrame* pKF)
             }
 
             mObservations.erase(pKF);
+            mObservationCamIds.erase(pKF);
 
             if(mpRefKF==pKF)
                 mpRefKF=mObservations.begin()->first;
@@ -245,6 +255,14 @@ int MapPoint::Observations()
     return nObs;
 }
 
+int MapPoint::GetObservationCamId(KeyFrame* pKF)
+{
+    unique_lock<mutex> lock(mMutexFeatures);
+    if(mObservationCamIds.count(pKF))
+        return mObservationCamIds[pKF];
+    return -1;
+}
+
 void MapPoint::SetBadFlag()
 {
     map<KeyFrame*, tuple<int,int>> obs;
@@ -254,6 +272,7 @@ void MapPoint::SetBadFlag()
         mbBad=true;
         obs = mObservations;
         mObservations.clear();
+        mObservationCamIds.clear();
     }
     for(map<KeyFrame*, tuple<int,int>>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
     {
@@ -284,12 +303,13 @@ void MapPoint::Replace(MapPoint* pMP)
 
     int nvisible, nfound;
     map<KeyFrame*,tuple<int,int>> obs;
-    {
-        unique_lock<mutex> lock1(mMutexFeatures);
-        unique_lock<mutex> lock2(mMutexPos);
-        obs=mObservations;
-        mObservations.clear();
-        mbBad=true;
+        {
+            unique_lock<mutex> lock1(mMutexFeatures);
+            unique_lock<mutex> lock2(mMutexPos);
+            obs=mObservations;
+            mObservations.clear();
+            mObservationCamIds.clear();
+            mbBad=true;
         nvisible = mnVisible;
         nfound = mnFound;
         mpReplaced = pMP;
@@ -303,15 +323,21 @@ void MapPoint::Replace(MapPoint* pMP)
         tuple<int,int> indexes = mit -> second;
         int leftIndex = get<0>(indexes), rightIndex = get<1>(indexes);
 
+        int camId = -1;
+        if(mObservationCamIds.count(pKF))
+            camId = mObservationCamIds[pKF];
+        if(camId < 0)
+            camId = pKF->GetMainCamIndex();
+
         if(!pMP->IsInKeyFrame(pKF))
         {
             if(leftIndex != -1){
                 pKF->ReplaceMapPointMatch(leftIndex, pMP);
-                pMP->AddObservation(pKF,leftIndex);
+                pMP->AddObservation(pKF,leftIndex,camId);
             }
             if(rightIndex != -1){
                 pKF->ReplaceMapPointMatch(rightIndex, pMP);
-                pMP->AddObservation(pKF,rightIndex);
+                pMP->AddObservation(pKF,rightIndex,camId);
             }
         }
         else

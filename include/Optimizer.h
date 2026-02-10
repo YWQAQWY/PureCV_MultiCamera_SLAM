@@ -27,6 +27,8 @@
 #include "Frame.h"
 
 #include <math.h>
+#include <Eigen/Core>
+#include "Thirdparty/Sophus/sophus/geometry.hpp"
 
 #include "Thirdparty/g2o/g2o/types/types_seven_dof_expmap.h"
 #include "Thirdparty/g2o/g2o/core/sparse_block_matrix.h"
@@ -43,6 +45,20 @@ namespace ORB_SLAM3
 
 class LoopClosing;
 
+struct ObservationEdgeInput
+{
+    int camId = 0;
+    MapPoint* pMP = nullptr;
+    size_t frameIndex = 0;
+    bool isStereo = false;
+    bool useBody = false;
+    Eigen::Vector2d uv = Eigen::Vector2d::Zero();
+    double ur = -1.0;
+    float invSigma2 = 1.0f;
+    float weight = 1.0f;
+    Sophus::SE3f Tcr = Sophus::SE3f();
+};
+
 class Optimizer
 {
 public:
@@ -57,6 +73,7 @@ public:
     void static LocalBundleAdjustment(KeyFrame* pKF, bool *pbStopFlag, Map *pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges);
 
     int static PoseOptimization(Frame* pFrame);
+    int static PoseOptimizationMultiCam(Frame* pFrame, std::vector<ObservationEdgeInput> &vObs, int minMainInliers=20);
     int static PoseInertialOptimizationLastKeyFrame(Frame* pFrame, bool bRecInit = false);
     int static PoseInertialOptimizationLastFrame(Frame *pFrame, bool bRecInit = false);
 

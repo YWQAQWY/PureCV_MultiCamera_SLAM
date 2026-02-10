@@ -128,6 +128,16 @@ namespace ORB_SLAM3 {
         float minMapPointFoundRatio() const {return minMapPointFoundRatio_;}
         float maxMapPointDepth() const {return maxMapPointDepth_;}
         int minAuxMapPointObservations() const {return minAuxMapPointObservations_;}
+        float maxAuxMapPointDepth() const {return maxAuxMapPointDepth_;}
+        float auxMaxCosParallax() const {return auxMaxCosParallax_;}
+        float auxMinBaselineRatio() const {return auxMinBaselineRatio_;}
+        float auxMaxReproj() const {return auxMaxReproj_;}
+        int minMainInliersForJoint() const {return minMainInliersForJoint_;}
+        int auxProjThInliers() const {return auxProjThInliers_;}
+        float auxProjThReproj() const {return auxProjThReproj_;}
+        float auxDeltaTh() const {return auxDeltaTh_;}
+        bool enableDeltaConsistencyGate() const {return enableDeltaConsistencyGate_;}
+        bool enableMultiCamPoseOpt() const {return enableMultiCamPoseOpt_;}
 
         cv::Mat M1l() {return M1l_;}
         cv::Mat M2l() {return M2l_;}
@@ -253,6 +263,16 @@ namespace ORB_SLAM3 {
         float minMapPointFoundRatio_ = 0.25f;
         float maxMapPointDepth_ = 50.0f;
         int minAuxMapPointObservations_ = 2;
+        float maxAuxMapPointDepth_ = 30.0f;
+        float auxMaxCosParallax_ = 0.9995f;
+        float auxMinBaselineRatio_ = 0.02f;
+        float auxMaxReproj_ = 3.0f;
+        int minMainInliersForJoint_ = 20;
+        int auxProjThInliers_ = 15;
+        float auxProjThReproj_ = 5.0f;
+        float auxDeltaTh_ = 0.5f;
+        bool enableDeltaConsistencyGate_ = true;
+        bool enableMultiCamPoseOpt_ = false;
 
     };
 };

@@ -123,10 +123,12 @@ public:
     int Observations();
 
     void AddObservation(KeyFrame* pKF,int idx);
+    void AddObservation(KeyFrame* pKF,int idx,int camId);
     void EraseObservation(KeyFrame* pKF);
 
     std::tuple<int,int> GetIndexInKeyFrame(KeyFrame* pKF);
     bool IsInKeyFrame(KeyFrame* pKF);
+    int GetObservationCamId(KeyFrame* pKF);
 
     struct AuxObservation
     {
@@ -228,6 +230,7 @@ protected:
 
      // Keyframes observing the point and associated index in keyframe
      std::map<KeyFrame*,std::tuple<int,int> > mObservations;
+     std::map<KeyFrame*,int> mObservationCamIds;
      // For save relation without pointer, this is necessary for save/load function
      std::map<long unsigned int, int> mBackupObservationsId1;
      std::map<long unsigned int, int> mBackupObservationsId2;

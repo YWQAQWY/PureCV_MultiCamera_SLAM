@@ -33,6 +33,8 @@
 
 #include <mutex>
 #include <chrono>
+#include <algorithm>
+#include <cmath>
 
 
 using namespace std;
@@ -1456,6 +1458,8 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
 {
     //cout << "GrabImageStereo" << endl;
 
+    const int mainCam = mpSettings ? mpSettings->mainCamIndex() : 0;
+
     mImGray = imRectLeft;
     cv::Mat imGrayRight = imRectRight;
     mImRight = imRectRight;
@@ -1504,6 +1508,7 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
 
     mCurrentFrame.mNameFile = filename;
     mCurrentFrame.mnDataset = mnNumDataset;
+    mCurrentFrame.mMainCamIndex = mainCam;
 
 #ifdef REGISTER_TIMES
     vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
@@ -1607,6 +1612,8 @@ Sophus::SE3f Tracking::GrabImageMonocular(const cv::Mat &im, const double &times
 
     mCurrentFrame.mNameFile = filename;
     mCurrentFrame.mnDataset = mnNumDataset;
+    if(mpSettings)
+        mCurrentFrame.mMainCamIndex = mpSettings->mainCamIndex();
 
 #ifdef REGISTER_TIMES
     vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
@@ -1723,6 +1730,7 @@ Sophus::SE3f Tracking::GrabImageMultiCamera(const std::vector<cv::Mat> &vIm, con
         std::vector<int> vLappingArea = {0, 0};
         (*pExtractor)(imGray, cv::Mat(), data.mvKeys, data.mDescriptors, vLappingArea);
 
+        data.mvKeysUn = data.mvKeys;
         if(!data.mvKeys.empty())
             mCurrentFrame.mvAuxCamData.push_back(data);
     }
@@ -3089,7 +3097,19 @@ bool Tracking::TrackLocalMap()
 
     int inliers;
     if (!mpAtlas->isImuInitialized())
-        Optimizer::PoseOptimization(&mCurrentFrame);
+    {
+        if(mpSettings && mpSettings->enableMultiCamPoseOpt())
+        {
+            std::vector<ObservationEdgeInput> vObs;
+            BuildMultiCamObservationInputs(vObs);
+            const int minMainInliers = mpSettings ? mpSettings->minMainInliersForJoint() : 20;
+            inliers = Optimizer::PoseOptimizationMultiCam(&mCurrentFrame, vObs, minMainInliers);
+        }
+        else
+        {
+            inliers = Optimizer::PoseOptimization(&mCurrentFrame);
+        }
+    }
     else
     {
         if(mCurrentFrame.mnId<=mnLastRelocFrameId+mnFramesToResetIMU)
@@ -3148,6 +3168,9 @@ bool Tracking::TrackLocalMap()
     // Decide if the tracking was succesful
     // More restrictive if there was a relocalization recently
     mpLocalMapper->mnMatchesInliers=mnMatchesInliers;
+    if(mState==OK)
+        LogAuxProjectionStats();
+
     if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<50)
         return false;
 
@@ -3179,6 +3202,347 @@ bool Tracking::TrackLocalMap()
             return false;
         else
             return true;
+    }
+}
+
+void Tracking::LogAuxProjectionStats()
+{
+    if(!mpSettings)
+        return;
+    if(mpSettings->numCameras() <= 1)
+        return;
+    if(mvpLocalMapPoints.empty())
+        return;
+
+    const auto &vTrc = mpSettings->Trc();
+    const int mainCam = mpSettings->mainCamIndex();
+    const int thInliers = mpSettings->auxProjThInliers();
+    const float thReproj = mpSettings->auxProjThReproj();
+
+    ORBmatcher matcher(0.8);
+
+    const Sophus::SE3f Twr = mCurrentFrame.GetPose().inverse();
+
+    const int nCams = mpSettings->numCameras();
+    for(int camId = 0; camId < nCams; ++camId)
+    {
+        if(camId == mainCam)
+            continue;
+        if(camId >= static_cast<int>(vTrc.size()))
+            continue;
+        const Frame::AuxCamData* data = mCurrentFrame.GetAuxCamData(camId);
+        if(!data || data->mDescriptors.empty())
+        {
+            std::cout << "[AuxProj] frame=" << mCurrentFrame.mnId
+                      << " cam=" << camId
+                      << " matches=0 inliers=0 median_reproj=-1 coverage=0"
+                      << " th_inliers=" << thInliers
+                      << " th_reproj=" << thReproj
+                      << std::endl;
+            continue;
+        }
+
+        Frame auxFrame(mCurrentFrame);
+        auxFrame.mpCamera = data->mpCamera;
+        auxFrame.mpCamera2 = nullptr;
+        auxFrame.mvKeys = data->mvKeys;
+        auxFrame.mvKeysUn = data->mvKeysUn;
+        auxFrame.mDescriptors = data->mDescriptors;
+        auxFrame.N = static_cast<int>(data->mvKeys.size());
+        auxFrame.Nleft = -1;
+        auxFrame.Nright = 0;
+        auxFrame.mMainCamIndex = camId;
+        auxFrame.mvuRight.assign(auxFrame.N, -1.0f);
+        auxFrame.mvDepth.assign(auxFrame.N, -1.0f);
+        auxFrame.mvpMapPoints.assign(auxFrame.N, static_cast<MapPoint*>(nullptr));
+        auxFrame.mvbOutlier.assign(auxFrame.N, false);
+        for(int i=0;i<FRAME_GRID_COLS;i++)
+            for(int j=0; j<FRAME_GRID_ROWS; j++){
+                auxFrame.mGrid[i][j].clear();
+                if(auxFrame.Nleft > 0)
+                    auxFrame.mGridRight[i][j].clear();
+            }
+        auxFrame.AssignFeaturesToGrid();
+
+        const Sophus::SE3f Twc = Twr * vTrc[camId];
+        const Sophus::SE3f Tcw = Twc.inverse();
+        auxFrame.SetPose(Tcw);
+
+        for(MapPoint* pMP : mvpLocalMapPoints)
+        {
+            if(!pMP || pMP->isBad())
+                continue;
+            auxFrame.isInFrustum(pMP, 0.5);
+        }
+
+        int matches = matcher.SearchByProjection(auxFrame, mvpLocalMapPoints, 3, mpLocalMapper->mbFarPoints, mpLocalMapper->mThFarPoints);
+
+        int inliers = 0;
+        std::vector<float> reprojErrors;
+        reprojErrors.reserve(matches);
+
+        for(int i=0; i<auxFrame.N; ++i)
+        {
+            MapPoint* pMP = auxFrame.mvpMapPoints[i];
+            if(!pMP)
+                continue;
+
+            Eigen::Vector3f Pc = Tcw * pMP->GetWorldPos();
+            if(Pc.z() <= 0)
+                continue;
+
+            cv::Point2f uv = auxFrame.mpCamera->project(cv::Point3f(Pc.x(), Pc.y(), Pc.z()));
+            const cv::KeyPoint &kp = auxFrame.mvKeysUn[i];
+            const float dx = uv.x - kp.pt.x;
+            const float dy = uv.y - kp.pt.y;
+            const float err = std::sqrt(dx*dx + dy*dy);
+            reprojErrors.push_back(err);
+            inliers++;
+        }
+
+        float medianError = -1.0f;
+        if(!reprojErrors.empty())
+        {
+            size_t mid = reprojErrors.size()/2;
+            std::nth_element(reprojErrors.begin(), reprojErrors.begin()+mid, reprojErrors.end());
+            medianError = reprojErrors[mid];
+        }
+
+        float coverage = auxFrame.N > 0 ? static_cast<float>(inliers) / static_cast<float>(auxFrame.N) : 0.0f;
+
+        std::cout << "[AuxProj] frame=" << mCurrentFrame.mnId
+                  << " cam=" << camId
+                  << " matches=" << matches
+                  << " inliers=" << inliers
+                  << " median_reproj=" << medianError
+                  << " coverage=" << coverage
+                  << " th_inliers=" << thInliers
+                  << " th_reproj=" << thReproj
+                  << std::endl;
+    }
+}
+
+void Tracking::BuildMultiCamObservationInputs(std::vector<ObservationEdgeInput> &vObs)
+{
+    vObs.clear();
+
+    const int mainCam = mpSettings->mainCamIndex();
+    const int N = mCurrentFrame.N;
+
+    std::vector<ObservationEdgeInput> vObsMain;
+    vObsMain.reserve(N);
+
+    for(int i=0; i<N; i++)
+    {
+        MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
+        if(!pMP)
+            continue;
+
+        if(!mCurrentFrame.mpCamera2)
+        {
+            const cv::KeyPoint &kpUn = mCurrentFrame.mvKeysUn[i];
+            ObservationEdgeInput input;
+            input.camId = mainCam;
+            input.pMP = pMP;
+            input.frameIndex = i;
+            input.isStereo = (mCurrentFrame.mvuRight[i] >= 0);
+            input.useBody = false;
+            input.uv << kpUn.pt.x, kpUn.pt.y;
+            input.ur = mCurrentFrame.mvuRight[i];
+            input.invSigma2 = mCurrentFrame.mvInvLevelSigma2[kpUn.octave];
+            input.weight = 1.0f;
+            vObsMain.push_back(input);
+            mCurrentFrame.mvbOutlier[i] = false;
+        }
+        else
+        {
+            ObservationEdgeInput input;
+            input.camId = mainCam;
+            input.pMP = pMP;
+            input.frameIndex = i;
+            input.isStereo = false;
+            input.ur = -1.0;
+            if(i < mCurrentFrame.Nleft)
+            {
+                const cv::KeyPoint &kpUn = mCurrentFrame.mvKeys[i];
+                input.useBody = false;
+                input.uv << kpUn.pt.x, kpUn.pt.y;
+                input.invSigma2 = mCurrentFrame.mvInvLevelSigma2[kpUn.octave];
+            }
+            else
+            {
+                const cv::KeyPoint &kpUn = mCurrentFrame.mvKeysRight[i - mCurrentFrame.Nleft];
+                input.useBody = true;
+                input.uv << kpUn.pt.x, kpUn.pt.y;
+                input.invSigma2 = mCurrentFrame.mvInvLevelSigma2[kpUn.octave];
+            }
+            input.weight = 1.0f;
+            vObsMain.push_back(input);
+            mCurrentFrame.mvbOutlier[i] = false;
+        }
+    }
+
+    vObs = vObsMain;
+    if(mCurrentFrame.mvAuxCamData.empty())
+        return;
+
+    const auto &vTrc = mpSettings->Trc();
+    const int thInliers = mpSettings->auxProjThInliers();
+    const float thReproj = mpSettings->auxProjThReproj();
+    const float thDelta = mpSettings->auxDeltaTh();
+    const int thRef = std::max(1, thInliers);
+    const int nCams = mpSettings->numCameras();
+
+    const bool enableDeltaGate = mpSettings->enableDeltaConsistencyGate();
+
+    std::vector<std::vector<ObservationEdgeInput>> vObsAux(nCams);
+    ORBmatcher matcher(0.8);
+    const Sophus::SE3f Twr = mCurrentFrame.GetPose().inverse();
+
+    for(int camId = 0; camId < nCams; ++camId)
+    {
+        if(camId == mainCam)
+            continue;
+        if(camId >= static_cast<int>(vTrc.size()))
+            continue;
+
+        const Frame::AuxCamData* data = mCurrentFrame.GetAuxCamData(camId);
+        if(!data || data->mDescriptors.empty())
+            continue;
+
+        Frame auxFrame(mCurrentFrame);
+        auxFrame.mpCamera = data->mpCamera;
+        auxFrame.mpCamera2 = nullptr;
+        auxFrame.mvKeys = data->mvKeys;
+        auxFrame.mvKeysUn = data->mvKeysUn;
+        auxFrame.mDescriptors = data->mDescriptors;
+        auxFrame.N = static_cast<int>(data->mvKeys.size());
+        auxFrame.Nleft = -1;
+        auxFrame.Nright = 0;
+        auxFrame.mMainCamIndex = camId;
+        auxFrame.mvuRight.assign(auxFrame.N, -1.0f);
+        auxFrame.mvDepth.assign(auxFrame.N, -1.0f);
+        auxFrame.mvpMapPoints.assign(auxFrame.N, static_cast<MapPoint*>(nullptr));
+        auxFrame.mvbOutlier.assign(auxFrame.N, false);
+        for(int i=0;i<FRAME_GRID_COLS;i++)
+            for(int j=0; j<FRAME_GRID_ROWS; j++){
+                auxFrame.mGrid[i][j].clear();
+                if(auxFrame.Nleft > 0)
+                    auxFrame.mGridRight[i][j].clear();
+            }
+        auxFrame.AssignFeaturesToGrid();
+
+        const Sophus::SE3f Twc = Twr * vTrc[camId];
+        const Sophus::SE3f Tcw = Twc.inverse();
+        auxFrame.SetPose(Tcw);
+
+        for(MapPoint* pMP : mvpLocalMapPoints)
+        {
+            if(!pMP || pMP->isBad())
+                continue;
+            auxFrame.isInFrustum(pMP, 0.5);
+        }
+
+        matcher.SearchByProjection(auxFrame, mvpLocalMapPoints, 3, mpLocalMapper->mbFarPoints, mpLocalMapper->mThFarPoints);
+
+        int inliers = 0;
+        std::vector<float> reprojErrors;
+        reprojErrors.reserve(auxFrame.N);
+
+        for(int i=0; i<auxFrame.N; ++i)
+        {
+            MapPoint* pMP = auxFrame.mvpMapPoints[i];
+            if(!pMP)
+                continue;
+
+            Eigen::Vector3f Pc = Tcw * pMP->GetWorldPos();
+            if(Pc.z() <= 0)
+                continue;
+
+            cv::Point2f uv = auxFrame.mpCamera->project(cv::Point3f(Pc.x(), Pc.y(), Pc.z()));
+            const cv::KeyPoint &kp = auxFrame.mvKeysUn[i];
+            const float dx = uv.x - kp.pt.x;
+            const float dy = uv.y - kp.pt.y;
+            const float err = std::sqrt(dx*dx + dy*dy);
+            reprojErrors.push_back(err);
+            inliers++;
+        }
+
+        float medianError = -1.0f;
+        if(!reprojErrors.empty())
+        {
+            size_t mid = reprojErrors.size()/2;
+            std::nth_element(reprojErrors.begin(), reprojErrors.begin()+mid, reprojErrors.end());
+            medianError = reprojErrors[mid];
+        }
+
+        if(inliers < thInliers)
+            continue;
+        if(medianError >= 0.0f && medianError > thReproj)
+            continue;
+
+        const float weight = std::min(1.0f, static_cast<float>(inliers) / static_cast<float>(thRef));
+        if(weight <= 0.0f)
+            continue;
+
+        const Sophus::SE3f Tcr = vTrc[camId].inverse();
+        auto &auxList = vObsAux[camId];
+        auxList.reserve(auxFrame.N);
+        for(int i=0; i<auxFrame.N; ++i)
+        {
+            MapPoint* pMP = auxFrame.mvpMapPoints[i];
+            if(!pMP)
+                continue;
+            const cv::KeyPoint &kpUn = auxFrame.mvKeysUn[i];
+
+            ObservationEdgeInput input;
+            input.camId = camId;
+            input.pMP = pMP;
+            input.frameIndex = i;
+            input.isStereo = false;
+            input.useBody = false;
+            input.uv << kpUn.pt.x, kpUn.pt.y;
+            input.invSigma2 = auxFrame.mvInvLevelSigma2[kpUn.octave];
+            input.weight = weight;
+            input.Tcr = Tcr;
+            auxList.push_back(input);
+        }
+    }
+
+    Sophus::SE3f TcwInit = mCurrentFrame.GetPose();
+    Sophus::SE3f deltaMain = Sophus::SE3f();
+    if(enableDeltaGate)
+    {
+        Frame mainFrame(mCurrentFrame);
+        mainFrame.SetPose(TcwInit);
+        Optimizer::PoseOptimizationMultiCam(&mainFrame, vObsMain, 0);
+        deltaMain = mainFrame.GetPose() * TcwInit.inverse();
+    }
+
+    for(int camId = 0; camId < nCams; ++camId)
+    {
+        if(camId == mainCam)
+            continue;
+        auto &auxList = vObsAux[camId];
+        if(auxList.size() < 3)
+            continue;
+
+        bool accept = true;
+        if(enableDeltaGate)
+        {
+            Frame auxFrame(mCurrentFrame);
+            auxFrame.SetPose(TcwInit);
+            Optimizer::PoseOptimizationMultiCam(&auxFrame, auxList, 0);
+            Sophus::SE3f deltaAux = auxFrame.GetPose() * TcwInit.inverse();
+            Eigen::Matrix<float,6,1> xi = (deltaAux * deltaMain.inverse()).log();
+            if(xi.norm() > thDelta)
+                accept = false;
+        }
+
+        if(!accept)
+            continue;
+
+        vObs.insert(vObs.end(), auxList.begin(), auxList.end());
     }
 }
 

@@ -95,6 +95,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     mnOriginMapId = pMap->GetId();
 
     mvAuxCamData = F.mvAuxCamData;
+    mMainCamIndex = F.mMainCamIndex;
 }
 
 const Frame::AuxCamData* KeyFrame::GetAuxCamData(const int camId) const
@@ -105,6 +106,30 @@ const Frame::AuxCamData* KeyFrame::GetAuxCamData(const int camId) const
             return &data;
     }
     return nullptr;
+}
+
+GeometricCamera* KeyFrame::GetCameraForCamId(const int camId) const
+{
+    if(camId == mMainCamIndex)
+        return mpCamera;
+    const Frame::AuxCamData* data = GetAuxCamData(camId);
+    return data ? data->mpCamera : mpCamera;
+}
+
+const std::vector<cv::KeyPoint>& KeyFrame::GetKeysForCamId(const int camId) const
+{
+    if(camId == mMainCamIndex)
+        return mvKeys;
+    const Frame::AuxCamData* data = GetAuxCamData(camId);
+    return data ? data->mvKeys : mvKeys;
+}
+
+const std::vector<cv::KeyPoint>& KeyFrame::GetKeysUnForCamId(const int camId) const
+{
+    if(camId == mMainCamIndex)
+        return mvKeysUn;
+    const Frame::AuxCamData* data = GetAuxCamData(camId);
+    return data ? data->mvKeysUn : mvKeysUn;
 }
 
 void KeyFrame::ComputeBoW()

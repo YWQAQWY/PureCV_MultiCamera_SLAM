@@ -53,6 +53,7 @@ class LocalMapping;
 class LoopClosing;
 class System;
 class Settings;
+struct ObservationEdgeInput;
 
 class Tracking
 {  
@@ -221,6 +222,8 @@ protected:
     void UpdateLocalKeyFrames();
 
     bool TrackLocalMap();
+    void BuildMultiCamObservationInputs(std::vector<ObservationEdgeInput> &vObs);
+    void LogAuxProjectionStats();
     void SearchLocalPoints();
 
     bool NeedNewKeyFrame();

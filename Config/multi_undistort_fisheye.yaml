@@ -85,8 +85,18 @@ Rig.normalize_extrinsics: 1
 Rig.enable_aux_mappoints: 1 # 1-> on
 Rig.min_mappoint_observations: 3
 Rig.min_mappoint_found_ratio: 0.35
-Rig.max_mappoint_depth: 40.0
+Rig.max_mappoint_depth: 35.0
 Rig.min_aux_mappoint_observations: 2
+Rig.max_aux_mappoint_depth: 20.0
+Rig.aux_max_cos_parallax: 1.0
+Rig.aux_min_baseline_ratio: 0.02
+Rig.aux_max_reproj: 2.0
+Rig.min_main_inliers_for_joint: 20
+Rig.th_inliers: 15
+Rig.th_reproj: 5.0
+Rig.th_delta: 0.5
+Rig.EnableDeltaConsistencyGate: 1
+Rig.EnableMultiCamPoseOpt: 1
 
 # Extrinsics: 
 Camera0.Twc: !!opencv-matrix
@@ -134,7 +144,7 @@ ORBextractor.nFeatures: 4800
 ORBextractor.scaleFactor: 1.2
 ORBextractor.nLevels: 8
 ORBextractor.iniThFAST: 12
-ORBextractor.minThFAST: 6
+ORBextractor.minThFAST: 7
 
 # Viewer / System
 Viewer.KeyFrameSize: 0.6

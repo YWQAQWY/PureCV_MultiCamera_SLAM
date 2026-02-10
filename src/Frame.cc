@@ -91,6 +91,7 @@ Frame::Frame(const Frame &frame)
     mmProjectPoints = frame.mmProjectPoints;
     mmMatchedInImage = frame.mmMatchedInImage;
     mvAuxCamData = frame.mvAuxCamData;
+    mMainCamIndex = frame.mMainCamIndex;
 
 #ifdef REGISTER_TIMES
     mTimeStereoMatch = frame.mTimeStereoMatch;
@@ -106,6 +107,30 @@ const Frame::AuxCamData* Frame::GetAuxCamData(const int camId) const
             return &data;
     }
     return nullptr;
+}
+
+GeometricCamera* Frame::GetCameraForCamId(const int camId) const
+{
+    if(camId == mMainCamIndex)
+        return mpCamera;
+    const AuxCamData* data = GetAuxCamData(camId);
+    return data ? data->mpCamera : mpCamera;
+}
+
+const std::vector<cv::KeyPoint>& Frame::GetKeysForCamId(const int camId) const
+{
+    if(camId == mMainCamIndex)
+        return mvKeys;
+    const AuxCamData* data = GetAuxCamData(camId);
+    return data ? data->mvKeys : mvKeys;
+}
+
+const std::vector<cv::KeyPoint>& Frame::GetKeysUnForCamId(const int camId) const
+{
+    if(camId == mMainCamIndex)
+        return mvKeysUn;
+    const AuxCamData* data = GetAuxCamData(camId);
+    return data ? data->mvKeysUn : mvKeysUn;
 }
 
 

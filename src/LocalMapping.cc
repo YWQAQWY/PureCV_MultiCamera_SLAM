@@ -838,7 +838,8 @@ void LocalMapping::CreateAuxMapPoints()
                 Eigen::Vector3f ray1 = Rcw1.transpose() * xn1;
                 Eigen::Vector3f ray2 = Rcw2.transpose() * xn2;
                 const float cosParallaxRays = ray1.dot(ray2) / (ray1.norm() * ray2.norm());
-                if(cosParallaxRays <= 0.0f || cosParallaxRays > 0.9998f)
+                const float maxCosParallax = mpSettings->auxMaxCosParallax();
+                if(cosParallaxRays <= 0.0f || cosParallaxRays > maxCosParallax)
                     continue;
 
                 Eigen::Vector3f x3D;
@@ -881,6 +882,16 @@ void LocalMapping::CreateAuxMapPoints()
                 float dist1 = normal1.norm();
                 float dist2 = normal2.norm();
                 if(dist1 == 0 || dist2 == 0)
+                    continue;
+
+                const float maxDepth = mpSettings->maxAuxMapPointDepth();
+                if(maxDepth > 0.0f && (dist1 > maxDepth || dist2 > maxDepth))
+                    continue;
+
+                const float ratioBase1 = baseline / dist1;
+                const float ratioBase2 = baseline / dist2;
+                const float minBaselineRatio = mpSettings->auxMinBaselineRatio();
+                if(ratioBase1 < minBaselineRatio && ratioBase2 < minBaselineRatio)
                     continue;
 
                 if(mbFarPoints && (dist1 >= mThFarPoints || dist2 >= mThFarPoints))
@@ -930,6 +941,8 @@ void LocalMapping::OptimizeAuxMapPoints(const std::vector<MapPoint*>& vpMapPoint
     const auto &vTrc = mpSettings->Trc();
     const auto &vRigCameras = mpSettings->rigCameras();
     const int maxIterations = 4;
+    const float maxDepth = mpSettings->maxAuxMapPointDepth();
+    const float maxReproj = mpSettings->auxMaxReproj();
 
     for(MapPoint* pMP : vpMapPoints)
     {
@@ -1000,6 +1013,66 @@ void LocalMapping::OptimizeAuxMapPoints(const std::vector<MapPoint*>& vpMapPoint
             Pw += delta.cast<float>();
             if(delta.norm() < 1e-4)
                 break;
+        }
+
+        int validObs = 0;
+        double totalError = 0.0;
+        float maxDepthObs = 0.0f;
+        for(const auto &obs : vObs)
+        {
+            if(!obs.pKF)
+                continue;
+            const Frame::AuxCamData* data = obs.pKF->GetAuxCamData(obs.camId);
+            if(!data || obs.idx < 0 || obs.idx >= static_cast<int>(data->mvKeys.size()))
+                continue;
+
+            GeometricCamera* pCamera = nullptr;
+            if(obs.camId < static_cast<int>(vRigCameras.size()) && vRigCameras[obs.camId])
+                pCamera = vRigCameras[obs.camId];
+            else
+                pCamera = obs.pKF->mpCamera;
+
+            if(!pCamera)
+                continue;
+
+            if(obs.camId >= static_cast<int>(vTrc.size()))
+                continue;
+
+            const Sophus::SE3f Twr = obs.pKF->GetPose().inverse();
+            const Sophus::SE3f Twc = Twr * vTrc[obs.camId];
+            const Sophus::SE3f Tcw = Twc.inverse();
+
+            const Eigen::Matrix3f Rcw = Tcw.rotationMatrix();
+            const Eigen::Vector3f tcw = Tcw.translation();
+            Eigen::Vector3f Pc = Rcw * Pw + tcw;
+            if(Pc.z() <= 0.0f)
+                continue;
+
+            const float depth = Pc.norm();
+            if(depth > maxDepth && maxDepth > 0.0f)
+                continue;
+            if(depth > maxDepthObs)
+                maxDepthObs = depth;
+
+            const cv::KeyPoint &kp = data->mvKeys[obs.idx];
+            cv::Point2f uv = pCamera->project(cv::Point3f(Pc.x(), Pc.y(), Pc.z()));
+            const double ex = uv.x - kp.pt.x;
+            const double ey = uv.y - kp.pt.y;
+            totalError += std::sqrt(ex * ex + ey * ey);
+            validObs++;
+        }
+
+        if(validObs < 2)
+        {
+            pMP->SetBadFlag();
+            continue;
+        }
+
+        const float meanError = static_cast<float>(totalError / static_cast<double>(validObs));
+        if(maxReproj > 0.0f && meanError > maxReproj)
+        {
+            pMP->SetBadFlag();
+            continue;
         }
 
         pMP->SetWorldPos(Pw);

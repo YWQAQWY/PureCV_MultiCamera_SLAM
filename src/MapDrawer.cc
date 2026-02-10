@@ -143,6 +143,7 @@ void MapDrawer::DrawMapPoints()
     const vector<MapPoint*> &vpMPs = pActiveMap->GetAllMapPoints();
     const vector<MapPoint*> &vpRefMPs = pActiveMap->GetReferenceMapPoints();
     const long unsigned int initKFid = pActiveMap->GetInitKFid();
+    const long unsigned int firstDisplayKFid = initKFid + 1;
 
     set<MapPoint*> spRefMPs(vpRefMPs.begin(), vpRefMPs.end());
 
@@ -164,7 +165,7 @@ void MapDrawer::DrawMapPoints()
     {
         if(vpMPs[i]->isBad() || spRefMPs.count(vpMPs[i]))
             continue;
-        if(vpMPs[i]->mnFirstKFid <= static_cast<long int>(initKFid))
+        if(vpMPs[i]->mnFirstKFid <= static_cast<long int>(firstDisplayKFid))
             continue;
         const int obs = vpMPs[i]->Observations();
         const int auxObs = vpMPs[i]->AuxObservations();
@@ -485,14 +486,15 @@ void MapDrawer::DrawTrajectory()
     sort(vpSorted.begin(), vpSorted.end(), KeyFrame::lId);
 
     glLineWidth(mGraphLineWidth * 2.5f);
-    glColor3f(0.0f, 0.8f, 0.0f);
+    glColor3f(1.0f, 0.0f, 0.0f);
     glBegin(GL_LINE_STRIP);
     const long unsigned int initKFid = pActiveMap->GetInitKFid();
+    const long unsigned int firstDisplayKFid = initKFid + 1;
     for(KeyFrame* pKF : vpSorted)
     {
         if(!pKF || pKF->isBad())
             continue;
-        if(pKF->mnId <= initKFid)
+        if(pKF->mnId <= firstDisplayKFid)
             continue;
         Eigen::Vector3f Ow = pKF->GetCameraCenter();
         glVertex3f(Ow(0), Ow(1), Ow(2));

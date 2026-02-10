@@ -28,6 +28,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <cmath>
 
 using namespace std;
 
@@ -612,6 +613,43 @@ namespace ORB_SLAM3 {
             std::cout << "Camera" << camIndex << ":\n" << Trc << std::endl;
         }
 
+        {
+            const Sophus::SE3f &TrcMain = vTrc_[mainCamIndex_];
+            Eigen::Matrix3f R = TrcMain.rotationMatrix();
+            float cosAngle = (R.trace() - 1.0f) * 0.5f;
+            cosAngle = std::max(-1.0f, std::min(1.0f, cosAngle));
+            const float angle = std::acos(cosAngle);
+            const float trans = TrcMain.translation().norm();
+            std::cout << "[RigCheck] Trc_main angle(rad)=" << angle
+                      << " trans=" << trans << std::endl;
+            if(angle > 1e-3f || trans > 1e-6f)
+                std::cout << "[RigCheck] WARNING: Trc_main not identity" << std::endl;
+        }
+
+        std::cout << "Rig extrinsics input (T_b<-c_i):" << std::endl;
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
+        {
+            Eigen::Matrix4f Tbc = vTbc_[camIndex].matrix();
+            std::cout << "Camera" << camIndex << ":\n" << Tbc << std::endl;
+        }
+
+        std::cout << "[RigCheck] T_b<-c0 * T_r<-c_i vs T_b<-c_i:" << std::endl;
+        const Sophus::SE3f Tbc0 = vTbc_[mainCamIndex_];
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
+        {
+            const Sophus::SE3f Tbc_i = vTbc_[camIndex];
+            const Sophus::SE3f Tbc_reproj = Tbc0 * vTrc_[camIndex];
+            const Sophus::SE3f Terr = Tbc_reproj.inverse() * Tbc_i;
+            Eigen::Matrix3f Rerr = Terr.rotationMatrix();
+            float cosAngle = (Rerr.trace() - 1.0f) * 0.5f;
+            cosAngle = std::max(-1.0f, std::min(1.0f, cosAngle));
+            const float angle = std::acos(cosAngle);
+            const float trans = Terr.translation().norm();
+            std::cout << "Camera" << camIndex
+                      << " angle_err(rad)=" << angle
+                      << " trans_err=" << trans << std::endl;
+        }
+
         bool normalizeExtrinsics = readParameter<int>(fSettings, "Rig.normalize_extrinsics", found, false);
         float extrinsicScale = readParameter<float>(fSettings, "Rig.extrinsic_scale", found, false);
         enableAuxMapPoints_ = true;
@@ -628,9 +666,43 @@ namespace ORB_SLAM3 {
         maxMapPointDepth_ = readParameter<float>(fSettings, "Rig.max_mappoint_depth", found, false);
         if(!found)
             maxMapPointDepth_ = 50.0f;
+        maxAuxMapPointDepth_ = readParameter<float>(fSettings, "Rig.max_aux_mappoint_depth", found, false);
+        if(!found)
+            maxAuxMapPointDepth_ = maxMapPointDepth_;
+        auxMaxCosParallax_ = readParameter<float>(fSettings, "Rig.aux_max_cos_parallax", found, false);
+        if(!found)
+            auxMaxCosParallax_ = 0.9995f;
+        auxMinBaselineRatio_ = readParameter<float>(fSettings, "Rig.aux_min_baseline_ratio", found, false);
+        if(!found)
+            auxMinBaselineRatio_ = 0.02f;
+        auxMaxReproj_ = readParameter<float>(fSettings, "Rig.aux_max_reproj", found, false);
+        if(!found)
+            auxMaxReproj_ = 3.0f;
+        minMainInliersForJoint_ = readParameter<int>(fSettings, "Rig.min_main_inliers_for_joint", found, false);
+        if(!found)
+            minMainInliersForJoint_ = 20;
         minAuxMapPointObservations_ = readParameter<int>(fSettings, "Rig.min_aux_mappoint_observations", found, false);
         if(!found)
             minAuxMapPointObservations_ = 2;
+        auxProjThInliers_ = readParameter<int>(fSettings, "Rig.th_inliers", found, false);
+        if(!found)
+            auxProjThInliers_ = 15;
+        auxProjThReproj_ = readParameter<float>(fSettings, "Rig.th_reproj", found, false);
+        if(!found)
+            auxProjThReproj_ = 5.0f;
+        auxDeltaTh_ = readParameter<float>(fSettings, "Rig.th_delta", found, false);
+        if(!found)
+            auxDeltaTh_ = 0.5f;
+        int enableDeltaGate = readParameter<int>(fSettings, "Rig.EnableDeltaConsistencyGate", found, false);
+        if(found)
+            enableDeltaConsistencyGate_ = (enableDeltaGate != 0);
+        else
+            enableDeltaConsistencyGate_ = true;
+        int enableMulti = readParameter<int>(fSettings, "Rig.EnableMultiCamPoseOpt", found, false);
+        if(found)
+            enableMultiCamPoseOpt_ = (enableMulti != 0);
+        else
+            enableMultiCamPoseOpt_ = false;
         if(found)
         {
             for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
