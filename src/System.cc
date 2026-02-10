@@ -549,7 +549,6 @@ Sophus::SE3f System::TrackMultiCamera(const std::vector<cv::Mat> &vIm, const dou
 }
 
 
-
 void System::ActivateLocalizationMode()
 {
     unique_lock<mutex> lock(mMutexMode);
@@ -768,7 +767,7 @@ void System::SaveMapPointsXYZ(const string &filename)
     const float minFoundRatio = settings_ ? settings_->minMapPointFoundRatio() : 0.25f;
     const float maxDepth = settings_ ? settings_->maxMapPointDepth() : 50.0f;
 
-    for(MapPoint* pMP : vpMPs)
+     for(MapPoint* pMP : vpMPs)
     {
         if(!pMP || pMP->isBad())
             continue;

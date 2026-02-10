@@ -81,7 +81,12 @@ Rig.gate_min_weight: 0.2
 Rig.gate_robust_scale: 0.7
 Rig.normalize_extrinsics: 1
 # Rig.extrinsic_scale: 1.0
-Rig.twc_is_body_to_camera: 0  #1  T_C<-B
+Rig.twc_is_body_to_camera: 0  #1  == T_C<-B
+# Body axis (FLU) to ORB/OpenCV axis (RDF)
+Rig.body_to_orb:
+  - [0, -1, 0]
+  - [0, 0, -1]
+  - [1, 0, 0]
 Rig.enable_aux_mappoints: 1 # 1-> on
 Rig.min_mappoint_observations: 3
 Rig.min_mappoint_found_ratio: 0.35

@@ -253,7 +253,7 @@ namespace ORB_SLAM3 {
 
         int nCameras_ = 1;
         int mainCamIndex_ = 0;
-        // T_{b<-c_i}: camera -> body
+        // T_{r<-c_i}: camera -> rig (rig == main camera)
         std::vector<Sophus::SE3f> vTbc_;
         // T_{r<-c_i}: camera -> rig (rig == main camera)
         std::vector<Sophus::SE3f> vTrc_;

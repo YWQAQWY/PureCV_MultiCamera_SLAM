@@ -513,23 +513,88 @@ namespace ORB_SLAM3 {
 
         vTbc_.clear();
         vTbc_.reserve(nCameras_);
-        bool twcIsBodyToCamera = readParameter<int>(fSettings, "Rig.twc_is_body_to_camera", found, false);
+
+        Sophus::SE3f bodyToOrb = Sophus::SE3f();
+        cv::Mat cvBodyToOrb;
+        cv::FileNode bodyNode = fSettings["Rig.body_to_orb"];
+        if(!bodyNode.empty())
+        {
+            if(bodyNode.isMap())
+            {
+                cvBodyToOrb = bodyNode.mat();
+            }
+            else if(bodyNode.isSeq())
+            {
+                const int rows = static_cast<int>(bodyNode.size());
+                if(rows > 0 && bodyNode[0].isSeq())
+                {
+                    const int cols = static_cast<int>(bodyNode[0].size());
+                    if(cols > 0)
+                    {
+                        cvBodyToOrb = cv::Mat(rows, cols, CV_32F);
+                        for(int r = 0; r < rows; ++r)
+                        {
+                            cv::FileNode rowNode = bodyNode[r];
+                            if(!rowNode.isSeq() || static_cast<int>(rowNode.size()) != cols)
+                                continue;
+                            for(int c = 0; c < cols; ++c)
+                                cvBodyToOrb.at<float>(r, c) = static_cast<float>(rowNode[c]);
+                        }
+                    }
+                }
+            }
+        }
+
+        if(!cvBodyToOrb.empty())
+        {
+            if(cvBodyToOrb.rows == 3 && cvBodyToOrb.cols == 3)
+            {
+                Eigen::Matrix3f Rbo;
+                cv::cv2eigen(cvBodyToOrb, Rbo);
+                bodyToOrb = Sophus::SE3f(Rbo, Eigen::Vector3f::Zero());
+            }
+            else if(cvBodyToOrb.rows == 4 && cvBodyToOrb.cols == 4)
+            {
+                Eigen::Matrix4f Tbo;
+                cv::cv2eigen(cvBodyToOrb, Tbo);
+                bodyToOrb = Sophus::SE3f(Tbo.block<3,3>(0,0), Tbo.block<3,1>(0,3));
+            }
+        }
+        std::cout << "Rig body_to_orb (T_orb<-b):" << std::endl;
+        std::cout << bodyToOrb.matrix() << std::endl;
+
+        std::vector<Sophus::SE3f> vTbcYaml;
+        vTbcYaml.reserve(nCameras_);
         for(int camIndex = 0; camIndex < nCameras_; ++camIndex){
             std::ostringstream key;
             key << "Camera" << camIndex << ".Twc";
             // Twc is camera->body: T_{b<-c_i}
             cv::Mat cvTbc = readParameter<cv::Mat>(fSettings, key.str(), found, false);
             if(!found){
-                vTbc_.push_back(Sophus::SE3f());
+                vTbcYaml.push_back(Sophus::SE3f());
                 continue;
             }
             Sophus::SE3f Tbc = Converter::toSophus(cvTbc);
-            if(twcIsBodyToCamera)
-            {
-                // Provided as T_{c<-b}, invert to T_{b<-c}
-                Tbc = Tbc.inverse();
-            }
-            vTbc_.push_back(Tbc);
+            Tbc = bodyToOrb * Tbc;
+            vTbcYaml.push_back(Tbc);
+        }
+        std::cout << "Rig extrinsics input after axis fix (T_b<-c_i):" << std::endl;
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
+        {
+            Eigen::Matrix4f Tbc = vTbcYaml[camIndex].matrix();
+            std::cout << "Camera" << camIndex << ":\n" << Tbc << std::endl;
+        }
+
+        const Sophus::SE3f T_b_c0 = vTbcYaml[mainCamIndex_];
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex){
+            vTbc_.push_back(T_b_c0.inverse() * vTbcYaml[camIndex]);
+        }
+
+        std::cout << "Rig extrinsics normalized (T_r<-c_i, rig==main):" << std::endl;
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
+        {
+            Eigen::Matrix4f Trc = vTbc_[camIndex].matrix();
+            std::cout << "Camera" << camIndex << ":\n" << Trc << std::endl;
         }
 
         vRigCameras_.clear();
@@ -595,12 +660,12 @@ namespace ORB_SLAM3 {
             }
         }
 
-        const Sophus::SE3f T_b_c0 = vTbc_[mainCamIndex_];
+        const Sophus::SE3f T_b_c0_norm = vTbc_[mainCamIndex_];
         vTrc_.assign(nCameras_, Sophus::SE3f());
         for(int camIndex = 0; camIndex < nCameras_; ++camIndex){
             // T_{r<-c_i} = (T_{b<-c0})^{-1} * T_{b<-c_i}
             // Use T_{c_i<-r} = (T_{r<-c_i})^{-1} when projecting.
-            vTrc_[camIndex] = T_b_c0.inverse() * vTbc_[camIndex];
+            vTrc_[camIndex] = T_b_c0_norm.inverse() * vTbc_[camIndex];
         }
         // Rig is defined to coincide with main camera: T_{r<-c0} = I
         vTrc_[mainCamIndex_] = Sophus::SE3f();
