@@ -46,7 +46,8 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mbOnlyTracking(false), mbMapUpdated(false), mbVO(false), mpORBVocabulary(pVoc), mpKeyFrameDB(pKFDB),
     mbReadyToInitializate(false), mpSystem(pSys), mpViewer(NULL), bStepByStep(false),
     mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(5.0),
-    mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
+    mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr),
+    mpLastKeyFrame(static_cast<KeyFrame*>(NULL)), mnCams(0)
 {
     // Load camera parameters from settings file
     if(settings){
@@ -533,8 +534,37 @@ Tracking::~Tracking()
 }
 
 void Tracking::newParameterLoader(Settings *settings) {
-    mpCamera = settings->camera1();
-    mpCamera = mpAtlas->AddCamera(mpCamera);
+    mnCams = settings->numCams();
+    mvpCameras.clear();
+    mvDistCoef.clear();
+    mvTbc.clear();
+
+    if(mnCams > 0){
+        mvpCameras.reserve(mnCams);
+        mvDistCoef.reserve(mnCams);
+        mvTbc.reserve(mnCams);
+        for(int camIdx = 0; camIdx < mnCams; ++camIdx){
+            GeometricCamera* cam = settings->camera(camIdx);
+            if(cam){
+                cam = mpAtlas->AddCamera(cam);
+                mvpCameras.push_back(cam);
+                cv::Mat dist = settings->cameraDistortionCoef(camIdx);
+                if(dist.empty()){
+                    dist = cv::Mat::zeros(4,1,CV_32F);
+                }
+                mvDistCoef.push_back(dist);
+                mvTbc.push_back(settings->Tbc(camIdx));
+            }
+        }
+    }
+
+    if(!mvpCameras.empty()){
+        mpCamera = mvpCameras[0];
+    }
+    else{
+        mpCamera = settings->camera1();
+        mpCamera = mpAtlas->AddCamera(mpCamera);
+    }
 
     if(settings->needToUndistort()){
         mDistCoef = settings->camera1DistortionCoef();
@@ -1614,6 +1644,70 @@ Sophus::SE3f Tracking::GrabImageMonocular(const cv::Mat &im, const double &times
     return mCurrentFrame.GetPose();
 }
 
+Sophus::SE3f Tracking::GrabImageMulti(const std::vector<cv::Mat> &vIm, const double &timestamp, string filename)
+{
+    mvImGray.clear();
+    mvImGray.reserve(vIm.size());
+
+    for(const auto &im : vIm){
+        cv::Mat imGray = im;
+        if(imGray.channels()==3)
+        {
+            if(mbRGB)
+                cvtColor(imGray,imGray,cv::COLOR_RGB2GRAY);
+            else
+                cvtColor(imGray,imGray,cv::COLOR_BGR2GRAY);
+        }
+        else if(imGray.channels()==4)
+        {
+            if(mbRGB)
+                cvtColor(imGray,imGray,cv::COLOR_RGBA2GRAY);
+            else
+                cvtColor(imGray,imGray,cv::COLOR_BGRA2GRAY);
+        }
+        mvImGray.push_back(imGray);
+    }
+
+    if(mvpCameras.empty()){
+        mvpCameras.push_back(mpCamera);
+        mvDistCoef.push_back(mDistCoef);
+        mvTbc.push_back(Sophus::SE3f());
+    }
+
+    const bool useMonoInit = (mState == NOT_INITIALIZED || mState == NO_IMAGES_YET);
+    //INITIALIAZATION STAGE
+    if(useMonoInit){
+        const cv::Mat &im0 = mvImGray[0];
+        if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET || (lastID - initID) < mMaxFrames)
+            mCurrentFrame = Frame(im0,timestamp,mpIniORBextractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
+        else
+            mCurrentFrame = Frame(im0,timestamp,mpORBextractorLeft,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
+    }
+    //NOMAL TRACKING STAGE
+    else{
+        mCurrentFrame = Frame(mvImGray,timestamp,mpORBextractorLeft,mpORBVocabulary,mvpCameras,mvDistCoef,mvTbc);
+
+        if(mnCams > 0){
+            std::cout << "Frame " << mCurrentFrame.mnId << " keypoints";
+            for(int camIdx = 0; camIdx < mnCams; ++camIdx){
+                std::cout << " cam" << camIdx << "=" << mCurrentFrame.mvvKeys[camIdx].size();
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    mCurrentFrame.mNameFile = filename;
+    mCurrentFrame.mnDataset = mnNumDataset;
+
+#ifdef REGISTER_TIMES
+    vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
+#endif
+
+    Track();
+
+    return mCurrentFrame.GetPose();
+}
+
 
 void Tracking::GrabImuData(const IMU::Point &imuMeasurement)
 {
@@ -2451,8 +2545,11 @@ void Tracking::MonocularInitialization()
     if(!mbReadyToInitializate)
     {
         // Set Reference Frame
-        if(mCurrentFrame.mvKeys.size()>100)
+        if(mCurrentFrame.mvKeys.size()>50) //100
         {
+
+            std::cout << "[Init] Set initial frame id=" << mCurrentFrame.mnId
+                      << " keypoints=" << mCurrentFrame.mvKeys.size() << std::endl;
 
             mInitialFrame = Frame(mCurrentFrame);
             mLastFrame = Frame(mCurrentFrame);
@@ -2477,11 +2574,19 @@ void Tracking::MonocularInitialization()
 
             return;
         }
+        else
+        {
+            std::cout << "[Init] Waiting for enough keypoints, current="
+                      << mCurrentFrame.mvKeys.size() << std::endl;
+        }
     }
     else
     {
-        if (((int)mCurrentFrame.mvKeys.size()<=100)||((mSensor == System::IMU_MONOCULAR)&&(mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp>1.0)))
+        if (((int)mCurrentFrame.mvKeys.size()<=50)||((mSensor == System::IMU_MONOCULAR)&&(mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp>1.0)))
         {
+            std::cout << "[Init] Reset init: keypoints=" << mCurrentFrame.mvKeys.size()
+                      << " dt=" << (mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp)
+                      << std::endl;
             mbReadyToInitializate = false;
 
             return;
@@ -2489,11 +2594,17 @@ void Tracking::MonocularInitialization()
 
         // Find correspondences
         ORBmatcher matcher(0.9,true);
-        int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);
+        int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);//100
+
+        std::cout << "[Init] Matches=" << nmatches
+                  << " init_id=" << mInitialFrame.mnId
+                  << " cur_id=" << mCurrentFrame.mnId
+                  << std::endl;
 
         // Check if there are enough correspondences
-        if(nmatches<100)
+        if(nmatches<20) //100
         {
+            std::cout << "[Init] Not enough matches, reset init" << std::endl;
             mbReadyToInitializate = false;
             return;
         }
@@ -2518,9 +2629,12 @@ void Tracking::MonocularInitialization()
 
             CreateInitialMapMonocular();
         }
+        else
+        {
+            std::cout << "[Init] ReconstructWithTwoViews failed" << std::endl;
+        }
     }
 }
-
 
 
 void Tracking::CreateInitialMapMonocular()
@@ -3467,8 +3581,8 @@ void Tracking::UpdateLocalKeyFrames()
             {
                 if(!pMP->isBad())
                 {
-                    const map<KeyFrame*,tuple<int,int>> observations = pMP->GetObservations();
-                    for(map<KeyFrame*,tuple<int,int>>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
+                    const map<KeyFrame*,vector<int>> observations = pMP->GetObservations();
+                    for(map<KeyFrame*,vector<int>>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
                         keyframeCounter[it->first]++;
                 }
                 else
@@ -3490,8 +3604,8 @@ void Tracking::UpdateLocalKeyFrames()
                     continue;
                 if(!pMP->isBad())
                 {
-                    const map<KeyFrame*,tuple<int,int>> observations = pMP->GetObservations();
-                    for(map<KeyFrame*,tuple<int,int>>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
+                    const map<KeyFrame*,vector<int>> observations = pMP->GetObservations();
+                    for(map<KeyFrame*,vector<int>>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
                         keyframeCounter[it->first]++;
                 }
                 else

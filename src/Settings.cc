@@ -125,7 +125,8 @@ namespace ORB_SLAM3 {
     }
 
     Settings::Settings(const std::string &configFile, const int& sensor) :
-    bNeedToUndistort_(false), bNeedToRectify_(false), bNeedToResize1_(false), bNeedToResize2_(false) {
+    bNeedToUndistort_(false), bNeedToRectify_(false), bNeedToResize1_(false), bNeedToResize2_(false),
+    nCams_(1) {
         sensor_ = sensor;
 
         //Open settings file
@@ -140,6 +141,12 @@ namespace ORB_SLAM3 {
             cout << "Loading settings from " << configFile << endl;
         }
 
+        bool found;
+        int fileNCams = readParameter<int>(fSettings,"Camera.nCam",found,false);
+        if(found && fileNCams > 0){
+            nCams_ = fileNCams;
+        }
+
         //Read first camera
         readCamera1(fSettings);
         cout << "\t-Loaded camera 1" << endl;
@@ -148,6 +155,12 @@ namespace ORB_SLAM3 {
         if(sensor_ == System::STEREO || sensor_ == System::IMU_STEREO){
             readCamera2(fSettings);
             cout << "\t-Loaded camera 2" << endl;
+        }
+
+        //Read multi-camera rig (optional)
+        if(nCams_ > 1){
+            readMultiCamera(fSettings);
+            cout << "\t-Loaded multi-camera rig" << endl;
         }
 
         //Read image info
@@ -353,6 +366,135 @@ namespace ORB_SLAM3 {
 
     }
 
+    void Settings::readMultiCamera(cv::FileStorage &fSettings) {
+        if(nCams_ <= 0){
+            std::cerr << "readMultiCamera skipped: nCams_=" << nCams_ << std::endl;
+            return;
+        }
+
+        bool found;
+        vCalibration_.assign(nCams_, nullptr);
+        vOriginalCalibration_.assign(nCams_, nullptr);
+        vPinHoleDistorsions_.assign(nCams_, std::vector<float>());
+        vTwc_.assign(nCams_, Sophus::SE3f());
+        vTbc_.assign(nCams_, Sophus::SE3f());
+
+        bool anyTbcFound = false;
+        int twcCount = 0;
+        std::vector<bool> hasTwc(nCams_, false);
+
+        for(int camIdx = 0; camIdx < nCams_; ++camIdx){
+            const std::string prefix = "Camera" + std::to_string(camIdx);
+            std::vector<float> vCalibration;
+
+            if(cameraType_ == PinHole || cameraType_ == Rectified){
+                float fx = readParameter<float>(fSettings, prefix + ".fx", found);
+                float fy = readParameter<float>(fSettings, prefix + ".fy", found);
+                float cx = readParameter<float>(fSettings, prefix + ".cx", found);
+                float cy = readParameter<float>(fSettings, prefix + ".cy", found);
+
+                vCalibration = {fx, fy, cx, cy};
+                vCalibration_[camIdx] = new Pinhole(vCalibration);
+                vOriginalCalibration_[camIdx] = new Pinhole(vCalibration);
+
+                readParameter<float>(fSettings, prefix + ".k1", found, false);
+                if(found){
+                    readParameter<float>(fSettings, prefix + ".k3", found, false);
+                    if(found){
+                        vPinHoleDistorsions_[camIdx].resize(5);
+                        vPinHoleDistorsions_[camIdx][4] = readParameter<float>(fSettings, prefix + ".k3", found);
+                    }
+                    else{
+                        vPinHoleDistorsions_[camIdx].resize(4);
+                    }
+                    vPinHoleDistorsions_[camIdx][0] = readParameter<float>(fSettings, prefix + ".k1", found);
+                    vPinHoleDistorsions_[camIdx][1] = readParameter<float>(fSettings, prefix + ".k2", found);
+                    vPinHoleDistorsions_[camIdx][2] = readParameter<float>(fSettings, prefix + ".p1", found);
+                    vPinHoleDistorsions_[camIdx][3] = readParameter<float>(fSettings, prefix + ".p2", found);
+                    bNeedToUndistort_ = true;
+                }
+            }
+            else if(cameraType_ == KannalaBrandt){
+                float fx = readParameter<float>(fSettings, prefix + ".fx", found);
+                float fy = readParameter<float>(fSettings, prefix + ".fy", found);
+                float cx = readParameter<float>(fSettings, prefix + ".cx", found);
+                float cy = readParameter<float>(fSettings, prefix + ".cy", found);
+
+                float k0 = readParameter<float>(fSettings, prefix + ".k1", found);
+                float k1 = readParameter<float>(fSettings, prefix + ".k2", found);
+                float k2 = readParameter<float>(fSettings, prefix + ".k3", found);
+                float k3 = readParameter<float>(fSettings, prefix + ".k4", found);
+
+                vCalibration = {fx, fy, cx, cy, k0, k1, k2, k3};
+                vCalibration_[camIdx] = new KannalaBrandt8(vCalibration);
+                vOriginalCalibration_[camIdx] = new KannalaBrandt8(vCalibration);
+            }
+            else{
+                cerr << "Error: " << prefix << " has unsupported camera model" << endl;
+                exit(-1);
+            }
+
+            cv::Mat cvTbc = readParameter<cv::Mat>(fSettings, prefix + ".Tbc", found, false);
+            if(found){
+                vTbc_[camIdx] = Converter::toSophus(cvTbc);
+                anyTbcFound = true;
+            }
+            else{
+                vTbc_[camIdx] = Sophus::SE3f();
+            }
+
+            cv::Mat cvTcw = readParameter<cv::Mat>(fSettings, prefix + ".Tcw", found, false);
+            if(!found){
+                cvTcw = readParameter<cv::Mat>(fSettings, prefix + ".Twc", found, false);
+            }
+            if(found){
+                vTwc_[camIdx] = Converter::toSophus(cvTcw);
+                hasTwc[camIdx] = true;
+                twcCount++;
+            }
+            else{
+                vTwc_[camIdx] = Sophus::SE3f();
+            }
+        }
+
+        if(!anyTbcFound && twcCount > 0){
+            const Sophus::SE3f T_wb(Eigen::Matrix3f::Identity(), Eigen::Vector3f::Zero());
+            for(int camIdx = 0; camIdx < nCams_; ++camIdx){
+                if(!hasTwc[camIdx]){
+                    continue;
+                }
+                vTbc_[camIdx] = vTwc_[camIdx].inverse() * T_wb;
+            }
+            std::cerr << "Computed rig center from Tcw: using body origin" << std::endl;
+        }
+
+        if(nCams_ > 1 && !vTbc_.empty()){
+            const Sophus::SE3f Tbc0 = vTbc_[0];
+            if(!Tbc0.matrix().isApprox(Sophus::SE3f().matrix())){
+                const Sophus::SE3f Tcb0 = Tbc0.inverse();
+                for(int camIdx = 0; camIdx < nCams_; ++camIdx){
+                    vTbc_[camIdx] = vTbc_[camIdx] * Tcb0;
+                }
+                std::cerr << "Normalized Tbc to camera0 frame" << std::endl;
+            }
+        }
+
+        if(!vCalibration_.empty()){
+            calibration1_ = vCalibration_[0];
+            originalCalib1_ = vOriginalCalibration_[0];
+        }
+        if(vCalibration_.size() > 1){
+            calibration2_ = vCalibration_[1];
+            originalCalib2_ = vOriginalCalibration_[1];
+        }
+
+        for(int camIdx = 0; camIdx < nCams_; ++camIdx){
+            const Sophus::SE3f &Tbc = vTbc_[camIdx];
+            std::cerr << "Tbc[" << camIdx << "] t = "
+                      << Tbc.translation().transpose() << std::endl;
+        }
+    }
+
     void Settings::readImageInfo(cv::FileStorage &fSettings) {
         bool found;
         //Read original and desired image dimensions
@@ -528,6 +670,17 @@ namespace ORB_SLAM3 {
 
     ostream &operator<<(std::ostream& output, const Settings& settings){
         output << "SLAM settings: " << endl;
+
+        if(settings.nCams_ > 1){
+            output << "\t-Multi-camera rig: " << settings.nCams_ << " cameras" << endl;
+            for(size_t camIdx = 0; camIdx < settings.vOriginalCalibration_.size(); ++camIdx){
+                output << "\t-Camera " << camIdx << " parameters: [";
+                for(size_t i = 0; i < settings.vOriginalCalibration_[camIdx]->size(); i++){
+                    output << " " << settings.vOriginalCalibration_[camIdx]->getParameter(i);
+                }
+                output << " ]" << endl;
+            }
+        }
 
         output << "\t-Camera 1 parameters (";
         if(settings.cameraType_ == Settings::PinHole || settings.cameraType_ ==  Settings::Rectified){
