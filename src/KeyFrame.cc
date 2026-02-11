@@ -33,7 +33,8 @@ KeyFrame::KeyFrame():
         mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnMergeQuery(0), mnMergeWords(0), mnBAGlobalForKF(0),
         fx(0), fy(0), cx(0), cy(0), invfx(0), invfy(0), mnPlaceRecognitionQuery(0), mnPlaceRecognitionWords(0), mPlaceRecognitionScore(0),
         mbf(0), mb(0), mThDepth(0), N(0), mvKeys(static_cast<vector<cv::KeyPoint> >(NULL)), mvKeysUn(static_cast<vector<cv::KeyPoint> >(NULL)),
-        mvuRight(static_cast<vector<float> >(NULL)), mvDepth(static_cast<vector<float> >(NULL)), mnScaleLevels(0), mfScaleFactor(0),
+        mvuRight(static_cast<vector<float> >(NULL)), mvDepth(static_cast<vector<float> >(NULL)), mvvKeys(), mvvKeysUn(), mvDescriptors(),
+        mvKeyCamIdx(), mnCams(0), mvpCameras(), mvTbc(), mnScaleLevels(0), mfScaleFactor(0),
         mfLogScaleFactor(0), mvScaleFactors(0), mvLevelSigma2(0), mvInvLevelSigma2(0), mnMinX(0), mnMinY(0), mnMaxX(0),
         mnMaxY(0), mPrevKF(static_cast<KeyFrame*>(NULL)), mNextKF(static_cast<KeyFrame*>(NULL)), mbFirstConnection(true), mpParent(NULL), mbNotErase(false),
         mbToBeErased(false), mbBad(false), mHalfBaseline(0), mbCurrentPlaceRecognition(false), mnMergeCorrectedForKF(0),
@@ -49,7 +50,9 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0), mnPlaceRecognitionQuery(0), mnPlaceRecognitionWords(0), mPlaceRecognitionScore(0),
     fx(F.fx), fy(F.fy), cx(F.cx), cy(F.cy), invfx(F.invfx), invfy(F.invfy),
     mbf(F.mbf), mb(F.mb), mThDepth(F.mThDepth), N(F.N), mvKeys(F.mvKeys), mvKeysUn(F.mvKeysUn),
-    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()),
+    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()), mvvKeys(F.mvvKeys),
+    mvvKeysUn(F.mvvKeysUn), mvDescriptors(F.mvDescriptors), mvKeyCamIdx(F.mvKeyCamIdx), mnCams(F.mnCams),
+    mvpCameras(F.mvpCameras), mvTbc(F.mvTbc),
     mBowVec(F.mBowVec), mFeatVec(F.mFeatVec), mnScaleLevels(F.mnScaleLevels), mfScaleFactor(F.mfScaleFactor),
     mfLogScaleFactor(F.mfLogScaleFactor), mvScaleFactors(F.mvScaleFactors), mvLevelSigma2(F.mvLevelSigma2),
     mvInvLevelSigma2(F.mvInvLevelSigma2), mnMinX(F.mnMinX), mnMinY(F.mnMinY), mnMaxX(F.mnMaxX),
@@ -132,6 +135,30 @@ Sophus::SE3f KeyFrame::GetPose()
 {
     unique_lock<mutex> lock(mMutexPose);
     return mTcw;
+}
+
+Sophus::SE3f KeyFrame::GetTcwCam(int camIdx) const
+{
+    unique_lock<mutex> lock(mMutexPose);
+    if(NLeft != -1 && camIdx == 1 && mpCamera2)
+    {
+        return mTrl * mTcw;
+    }
+    if(NLeft == -1 && mnCams > 1){
+        if(camIdx >= 0 && camIdx < static_cast<int>(mvTbc.size())){
+            return mvTbc[camIdx] * mTcw;
+        }
+    }
+    return mTcw;
+}
+
+Eigen::Vector3f KeyFrame::GetCameraCenterCam(int camIdx) const
+{
+    if(NLeft != -1 && camIdx == 1 && mpCamera2)
+        return GetRightCameraCenter();
+
+    Sophus::SE3f Tcw = GetTcwCam(camIdx);
+    return Tcw.inverse().translation();
 }
 
 Sophus::SE3f KeyFrame::GetPoseInverse()
@@ -399,9 +426,9 @@ void KeyFrame::UpdateConnections(bool upParent)
         if(pMP->isBad())
             continue;
 
-        map<KeyFrame*,tuple<int,int>> observations = pMP->GetObservations();
+        map<KeyFrame*,vector<int>> observations = pMP->GetObservations();
 
-        for(map<KeyFrame*,tuple<int,int>>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
+        for(map<KeyFrame*,vector<int>>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
         {
             if(mit->first->mnId==mnId || mit->first->isBad() || mit->first->GetMap() != mpMap)
                 continue;
@@ -1101,6 +1128,63 @@ bool KeyFrame::ProjectPointUnDistort(MapPoint* pMP, cv::Point2f &kp, float &u, f
         return false;
 
     kp = cv::Point2f(u, v);
+
+    return true;
+}
+
+bool KeyFrame::isInFrustum(MapPoint* pMP, float viewingCosLimit)
+{
+    Eigen::Vector3f P = pMP->GetWorldPos();
+    int camIdx = 0;
+
+    const map<KeyFrame*,vector<int>> observations = pMP->GetObservations();
+    map<KeyFrame*,vector<int>>::const_iterator it = observations.find(this);
+    if(it != observations.end())
+    {
+        const vector<int> &indexes = it->second;
+        for(size_t i = 0; i < indexes.size(); ++i)
+        {
+            if(indexes[i] != -1)
+            {
+                camIdx = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+
+    if(camIdx < 0)
+        camIdx = 0;
+    if(NLeft == -1 && camIdx >= mnCams)
+        camIdx = 0;
+
+    Sophus::SE3f TcwCam = GetTcwCam(camIdx);
+    Eigen::Vector3f Pc = TcwCam * P;
+    if(Pc(2) < 0.0f)
+        return false;
+
+    GeometricCamera* pCamera = mpCamera;
+    if(NLeft == -1 && camIdx < static_cast<int>(mvpCameras.size()))
+        pCamera = mvpCameras[camIdx];
+    else if(NLeft != -1 && camIdx == 1 && mpCamera2)
+        pCamera = mpCamera2;
+
+    const Eigen::Vector2f uv = pCamera->project(Pc);
+    if(!IsInImage(uv(0), uv(1)))
+        return false;
+
+    const Eigen::Vector3f Ow = TcwCam.inverse().translation();
+    const Eigen::Vector3f PO = P - Ow;
+    const float dist = PO.norm();
+
+    const float maxDistance = pMP->GetMaxDistanceInvariance();
+    const float minDistance = pMP->GetMinDistanceInvariance();
+    if(dist < minDistance || dist > maxDistance)
+        return false;
+
+    const Eigen::Vector3f Pn = pMP->GetNormal();
+    const float viewCos = PO.dot(Pn)/dist;
+    if(viewCos < viewingCosLimit)
+        return false;
 
     return true;
 }

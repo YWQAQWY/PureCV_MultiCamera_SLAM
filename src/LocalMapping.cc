@@ -502,7 +502,10 @@ void LocalMapping::CreateNewMapPoints()
             const bool bRight2 = (pKF2 -> NLeft == -1 || idx2 < pKF2 -> NLeft) ? false
                                                                                : true;
 
-            if(mpCurrentKeyFrame->mpCamera2 && pKF2->mpCamera2){
+        const bool useMultiRigKF = (mpCurrentKeyFrame->NLeft == -1 && mpCurrentKeyFrame->mnCams > 1 &&
+                                    pKF2->NLeft == -1 && pKF2->mnCams > 1);
+
+        if(!useMultiRigKF && mpCurrentKeyFrame->mpCamera2 && pKF2->mpCamera2){
                 if(bRight1 && bRight2){
                     sophTcw1 = mpCurrentKeyFrame->GetRightPose();
                     Ow1 = mpCurrentKeyFrame->GetRightCameraCenter();
@@ -543,6 +546,39 @@ void LocalMapping::CreateNewMapPoints()
                     pCamera1 = mpCurrentKeyFrame->mpCamera;
                     pCamera2 = pKF2->mpCamera;
                 }
+                eigTcw1 = sophTcw1.matrix3x4();
+                Rcw1 = eigTcw1.block<3,3>(0,0);
+                Rwc1 = Rcw1.transpose();
+                tcw1 = sophTcw1.translation();
+
+                eigTcw2 = sophTcw2.matrix3x4();
+                Rcw2 = eigTcw2.block<3,3>(0,0);
+                Rwc2 = Rcw2.transpose();
+                tcw2 = sophTcw2.translation();
+            }
+
+            if(useMultiRigKF)
+            {
+                int camIdx1 = 0;
+                if(idx1 >= 0 && idx1 < static_cast<int>(mpCurrentKeyFrame->mvKeyCamIdx.size()))
+                    camIdx1 = mpCurrentKeyFrame->mvKeyCamIdx[idx1];
+                int camIdx2 = 0;
+                if(idx2 >= 0 && idx2 < static_cast<int>(pKF2->mvKeyCamIdx.size()))
+                    camIdx2 = pKF2->mvKeyCamIdx[idx2];
+
+                if(camIdx1 < 0 || camIdx1 >= mpCurrentKeyFrame->mnCams)
+                    camIdx1 = 0;
+                if(camIdx2 < 0 || camIdx2 >= pKF2->mnCams)
+                    camIdx2 = 0;
+
+                sophTcw1 = mpCurrentKeyFrame->GetTcwCam(camIdx1);
+                Ow1 = mpCurrentKeyFrame->GetCameraCenterCam(camIdx1);
+                pCamera1 = mpCurrentKeyFrame->mvpCameras[camIdx1];
+
+                sophTcw2 = pKF2->GetTcwCam(camIdx2);
+                Ow2 = pKF2->GetCameraCenterCam(camIdx2);
+                pCamera2 = pKF2->mvpCameras[camIdx2];
+
                 eigTcw1 = sophTcw1.matrix3x4();
                 Rcw1 = eigTcw1.block<3,3>(0,0);
                 Rwc1 = Rcw1.transpose();
@@ -968,15 +1004,16 @@ void LocalMapping::KeyFrameCulling()
                         const int &scaleLevel = (pKF -> NLeft == -1) ? pKF->mvKeysUn[i].octave
                                                                      : (i < pKF -> NLeft) ? pKF -> mvKeys[i].octave
                                                                                           : pKF -> mvKeysRight[i].octave;
-                        const map<KeyFrame*, tuple<int,int>> observations = pMP->GetObservations();
+                        const map<KeyFrame*, vector<int>> observations = pMP->GetObservations();
                         int nObs=0;
-                        for(map<KeyFrame*, tuple<int,int>>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
+                        for(map<KeyFrame*, vector<int>>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
                         {
                             KeyFrame* pKFi = mit->first;
                             if(pKFi==pKF)
                                 continue;
-                            tuple<int,int> indexes = mit->second;
-                            int leftIndex = get<0>(indexes), rightIndex = get<1>(indexes);
+                            const vector<int> &indexes = mit->second;
+                            int leftIndex = !indexes.empty() ? indexes[0] : -1;
+                            int rightIndex = (indexes.size() > 1) ? indexes[1] : -1;
                             int scaleLeveli = -1;
                             if(pKFi -> NLeft == -1)
                                 scaleLeveli = pKFi->mvKeysUn[leftIndex].octave;

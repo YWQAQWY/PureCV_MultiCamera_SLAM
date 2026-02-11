@@ -202,6 +202,9 @@ public:
     void SetVelocity(const Eigen::Vector3f &Vw_);
 
     Sophus::SE3f GetPose();
+    Sophus::SE3f GetTcwCam(int camIdx) const;
+    Eigen::Vector3f GetCameraCenterCam(int camIdx) const;
+    bool isInFrustum(MapPoint* pMP, float viewingCosLimit);
 
     Sophus::SE3f GetPoseInverse();
     Eigen::Vector3f GetCameraCenter();
@@ -383,6 +386,13 @@ public:
     const std::vector<float> mvuRight; // negative value for monocular points
     const std::vector<float> mvDepth; // negative value for monocular points
     const cv::Mat mDescriptors;
+    const std::vector<std::vector<cv::KeyPoint>> mvvKeys;
+    const std::vector<std::vector<cv::KeyPoint>> mvvKeysUn;
+    const std::vector<cv::Mat> mvDescriptors;
+    const std::vector<int> mvKeyCamIdx;
+    const int mnCams;
+    const std::vector<GeometricCamera*> mvpCameras;
+    const std::vector<Sophus::SE3f> mvTbc;
 
     //BoW
     DBoW2::BowVector mBowVec;

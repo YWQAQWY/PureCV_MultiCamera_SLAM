@@ -2077,7 +2077,7 @@ void LoopClosing::CheckObservations(set<KeyFrame*> &spKFsMap1, set<KeyFrame*> &s
                 continue;
             }
 
-            map<KeyFrame*, tuple<int,int>> mMPijObs = pMPij->GetObservations();
+            map<KeyFrame*, vector<int>> mMPijObs = pMPij->GetObservations();
             for(KeyFrame* pKFi2 : spKFsMap2)
             {
                 if(mMPijObs.find(pKFi2) != mMPijObs.end())

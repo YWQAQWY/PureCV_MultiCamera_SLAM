@@ -109,8 +109,23 @@ static bool ReadRigExtrinsics(const string &config_path, array<Sophus::SE3f, 4> 
         twc_cams[i] = Sophus::SE3f(R, t);
         has_twc[i] = true;
     }
+    Eigen::Vector3f center = Eigen::Vector3f::Zero();
+    int count = 0;
     for (int i = 0; i < 4; ++i) {
-        tbc_cams[i] = twc_cams[i].inverse();
+        if (!has_twc[i]) {
+            continue;
+        }
+        center += twc_cams[i].translation();
+        count++;
+    }
+    if (count == 0) {
+        return false;
+    }
+    center /= static_cast<float>(count);
+    Sophus::SE3f T_w_b(Eigen::Matrix3f::Identity(), center);
+    Sophus::SE3f T_b_w = T_w_b.inverse();
+    for (int i = 0; i < 4; ++i) {
+        tbc_cams[i] = T_b_w * twc_cams[i];
     }
     return true;
 }
@@ -371,7 +386,7 @@ static bool TriangulateMatches(const vector<cv::KeyPoint> &kp0,
         if (m.size() < 2) {
             continue;
         }
-        if (m[0].distance < 0.85f * m[1].distance) {
+        if (m[0].distance < 0.75f * m[1].distance) {
             good_matches.push_back(m[0]);
         }
     }
@@ -382,8 +397,8 @@ static bool TriangulateMatches(const vector<cv::KeyPoint> &kp0,
 
     sort(good_matches.begin(), good_matches.end(),
          [](const cv::DMatch &a, const cv::DMatch &b) { return a.distance < b.distance; });
-    if (good_matches.size() > 1500) {
-        good_matches.resize(1500);
+    if (good_matches.size() > 500) {
+        good_matches.resize(500);
     }
 
     vector<cv::Point2f> pts0;
@@ -447,7 +462,7 @@ static bool TriangulateMatches(const vector<cv::KeyPoint> &kp0,
 
         Eigen::Vector2f obs0(pts0[i].x, pts0[i].y);
         Eigen::Vector2f obsi(ptsi[i].x, ptsi[i].y);
-        if ((reproj0 - obs0).norm() > 5.0f || (reproji - obsi).norm() > 5.0f) {
+        if ((reproj0 - obs0).norm() > 3.0f || (reproji - obsi).norm() > 3.0f) {
             continue;
         }
 
@@ -495,7 +510,7 @@ int main(int argc, char **argv)
     }
 
     array<Sophus::SE3f, 4> T_b_c;
-    if (!ReadRigExtrinsics(extrinsics_path,T_b_c)) {
+    if (!ReadRigExtrinsics(extrinsics_path, T_b_c)) {
         cerr << "Failed to load extrinsics file: " << extrinsics_path << endl;
         return 1;
     }

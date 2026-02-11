@@ -119,7 +119,7 @@ public:
 
     KeyFrame* GetReferenceKeyFrame();
 
-    std::map<KeyFrame*,std::tuple<int,int>> GetObservations();
+    std::map<KeyFrame*,std::vector<int>> GetObservations();
     int Observations();
 
     void AddObservation(KeyFrame* pKF,int idx);
@@ -213,7 +213,7 @@ protected:
      Eigen::Vector3f mWorldPos;
 
      // Keyframes observing the point and associated index in keyframe
-     std::map<KeyFrame*,std::tuple<int,int> > mObservations;
+    std::map<KeyFrame*,std::vector<int> > mObservations;
      // For save relation without pointer, this is necessary for save/load function
      std::map<long unsigned int, int> mBackupObservationsId1;
      std::map<long unsigned int, int> mBackupObservationsId2;

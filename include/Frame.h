@@ -151,6 +151,8 @@ public:
         return mTcw;
     }
 
+    Sophus::SE3f GetTcwCam(int camIdx) const;
+
     inline Eigen::Matrix3f GetRwc() const {
         return mRwc;
     }
@@ -247,7 +249,9 @@ public:
     cv::Mat mDescriptors, mDescriptorsRight;
 
     std::vector<std::vector<cv::KeyPoint>> mvvKeys;
+    std::vector<std::vector<cv::KeyPoint>> mvvKeysUn;
     std::vector<cv::Mat> mvDescriptors;
+    std::vector<int> mvKeyCamIdx;
 
     // MapPoints associated to keypoints, NULL pointer if no association.
     // Flag to identify outlier associations.
@@ -256,6 +260,8 @@ public:
 
     std::vector<Sophus::SE3f> mvTbc;
     std::vector<GeometricCamera*> mvpCameras;
+    std::vector<cv::Mat> mvDistCoef;
+    int mnCams;
 
     // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
     static float mfGridElementWidthInv;

@@ -435,6 +435,8 @@ namespace ORB_SLAM3
 
         Sophus::SE3f Tcw = Sophus::SE3f(Scw.rotationMatrix(),Scw.translation()/Scw.scale());
         Eigen::Vector3f Ow = Tcw.inverse().translation();
+        const bool useMultiRigKF = (pKF->mnCams > 1 && pKF->NLeft == -1);
+        const bool useMultiRigKF = (pKF->mnCams > 1 && pKF->NLeft == -1);
 
         // Set of MapPoints already found in the KeyFrame
         set<MapPoint*> spAlreadyFound(vpMatched.begin(), vpMatched.end());
@@ -454,76 +456,73 @@ namespace ORB_SLAM3
             // Get 3D Coords.
             Eigen::Vector3f p3Dw = pMP->GetWorldPos();
 
-            // Transform into Camera Coords.
-            Eigen::Vector3f p3Dc = Tcw * p3Dw;
-
-            // Depth must be positive
-            if(p3Dc(2)<0.0)
-                continue;
-
-            // Project into Image
-            const Eigen::Vector2f uv = pKF->mpCamera->project(p3Dc);
-
-            // Point must be inside the image
-            if(!pKF->IsInImage(uv(0),uv(1)))
-                continue;
-
-            // Depth must be inside the scale invariance region of the point
-            const float maxDistance = pMP->GetMaxDistanceInvariance();
-            const float minDistance = pMP->GetMinDistanceInvariance();
-            Eigen::Vector3f PO = p3Dw-Ow;
-            const float dist = PO.norm();
-
-            if(dist<minDistance || dist>maxDistance)
-                continue;
-
-            // Viewing angle must be less than 60 deg
-            Eigen::Vector3f Pn = pMP->GetNormal();
-
-            if(PO.dot(Pn)<0.5*dist)
-                continue;
-
-            int nPredictedLevel = pMP->PredictScale(dist,pKF);
-
-            // Search in a radius
-            const float radius = th*pKF->mvScaleFactors[nPredictedLevel];
-
-            const vector<size_t> vIndices = pKF->GetFeaturesInArea(uv(0),uv(1),radius);
-
-            if(vIndices.empty())
-                continue;
-
-            // Match to the most similar keypoint in the radius
-            const cv::Mat dMP = pMP->GetDescriptor();
-
-            int bestDist = 256;
-            int bestIdx = -1;
-            for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
+            const int nCams = useMultiRigKF ? pKF->mnCams : 1;
+            for(int camIdx = 0; camIdx < nCams; ++camIdx)
             {
-                const size_t idx = *vit;
-                if(vpMatched[idx])
+                const Sophus::SE3f TcwCam = useMultiRigKF ? pKF->GetTcwCam(camIdx) : Tcw;
+                const Eigen::Vector3f OwCam = TcwCam.inverse().translation();
+
+                Eigen::Vector3f p3Dc = TcwCam * p3Dw;
+                if(p3Dc(2)<0.0)
                     continue;
 
-                const int &kpLevel= pKF->mvKeysUn[idx].octave;
+                GeometricCamera* pCamera = useMultiRigKF ? pKF->mvpCameras[camIdx] : pKF->mpCamera;
+                const Eigen::Vector2f uv = pCamera->project(p3Dc);
 
-                if(kpLevel<nPredictedLevel-1 || kpLevel>nPredictedLevel)
+                if(!pKF->IsInImage(uv(0),uv(1)))
                     continue;
 
-                const cv::Mat &dKF = pKF->mDescriptors.row(idx);
+                const float maxDistance = pMP->GetMaxDistanceInvariance();
+                const float minDistance = pMP->GetMinDistanceInvariance();
+                Eigen::Vector3f PO = p3Dw-OwCam;
+                const float dist = PO.norm();
 
-                const int dist = DescriptorDistance(dMP,dKF);
+                if(dist<minDistance || dist>maxDistance)
+                    continue;
 
-                if(dist<bestDist)
+                Eigen::Vector3f Pn = pMP->GetNormal();
+                if(PO.dot(Pn)<0.5*dist)
+                    continue;
+
+                int nPredictedLevel = pMP->PredictScale(dist,pKF);
+                const float radius = th*pKF->mvScaleFactors[nPredictedLevel];
+
+                const vector<size_t> vIndices = pKF->GetFeaturesInArea(uv(0),uv(1),radius);
+                if(vIndices.empty())
+                    continue;
+
+                const cv::Mat dMP = pMP->GetDescriptor();
+
+                int bestDist = 256;
+                int bestIdx = -1;
+                for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
                 {
-                    bestDist = dist;
-                    bestIdx = idx;
-                }
-            }
+                    const size_t idx = *vit;
+                    if(vpMatched[idx])
+                        continue;
+                    if(useMultiRigKF && pKF->mvKeyCamIdx[idx] != camIdx)
+                        continue;
 
-            if(bestDist<=TH_LOW*ratioHamming)
-            {
-                vpMatched[bestIdx]=pMP;
-                nmatches++;
+                    const int &kpLevel= pKF->mvKeysUn[idx].octave;
+                    if(kpLevel<nPredictedLevel-1 || kpLevel>nPredictedLevel)
+                        continue;
+
+                    const cv::Mat &dKF = pKF->mDescriptors.row(idx);
+                    const int dist = DescriptorDistance(dMP,dKF);
+
+                    if(dist<bestDist)
+                    {
+                        bestDist = dist;
+                        bestIdx = idx;
+                    }
+                }
+
+                if(bestDist<=TH_LOW*ratioHamming)
+                {
+                    vpMatched[bestIdx]=pMP;
+                    nmatches++;
+                    break;
+                }
             }
 
         }
@@ -562,82 +561,74 @@ namespace ORB_SLAM3
             // Get 3D Coords.
             Eigen::Vector3f p3Dw = pMP->GetWorldPos();
 
-            // Transform into Camera Coords.
-            Eigen::Vector3f p3Dc = Tcw * p3Dw;
-
-            // Depth must be positive
-            if(p3Dc(2)<0.0)
-                continue;
-
-            // Project into Image
-            const float invz = 1/p3Dc(2);
-            const float x = p3Dc(0)*invz;
-            const float y = p3Dc(1)*invz;
-
-            const float u = fx*x+cx;
-            const float v = fy*y+cy;
-
-            // Point must be inside the image
-            if(!pKF->IsInImage(u,v))
-                continue;
-
-            // Depth must be inside the scale invariance region of the point
-            const float maxDistance = pMP->GetMaxDistanceInvariance();
-            const float minDistance = pMP->GetMinDistanceInvariance();
-            Eigen::Vector3f PO = p3Dw-Ow;
-            const float dist = PO.norm();
-
-            if(dist<minDistance || dist>maxDistance)
-                continue;
-
-            // Viewing angle must be less than 60 deg
-            Eigen::Vector3f Pn = pMP->GetNormal();
-
-            if(PO.dot(Pn)<0.5*dist)
-                continue;
-
-            int nPredictedLevel = pMP->PredictScale(dist,pKF);
-
-            // Search in a radius
-            const float radius = th*pKF->mvScaleFactors[nPredictedLevel];
-
-            const vector<size_t> vIndices = pKF->GetFeaturesInArea(u,v,radius);
-
-            if(vIndices.empty())
-                continue;
-
-            // Match to the most similar keypoint in the radius
-            const cv::Mat dMP = pMP->GetDescriptor();
-
-            int bestDist = 256;
-            int bestIdx = -1;
-            for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
+            const int nCams = useMultiRigKF ? pKF->mnCams : 1;
+            for(int camIdx = 0; camIdx < nCams; ++camIdx)
             {
-                const size_t idx = *vit;
-                if(vpMatched[idx])
+                const Sophus::SE3f TcwCam = useMultiRigKF ? pKF->GetTcwCam(camIdx) : Tcw;
+                const Eigen::Vector3f OwCam = TcwCam.inverse().translation();
+
+                Eigen::Vector3f p3Dc = TcwCam * p3Dw;
+                if(p3Dc(2)<0.0)
                     continue;
 
-                const int &kpLevel= pKF->mvKeysUn[idx].octave;
+                GeometricCamera* pCamera = useMultiRigKF ? pKF->mvpCameras[camIdx] : pKF->mpCamera;
+                const Eigen::Vector2f uv = pCamera->project(p3Dc);
 
-                if(kpLevel<nPredictedLevel-1 || kpLevel>nPredictedLevel)
+                if(!pKF->IsInImage(uv(0),uv(1)))
                     continue;
 
-                const cv::Mat &dKF = pKF->mDescriptors.row(idx);
+                const float maxDistance = pMP->GetMaxDistanceInvariance();
+                const float minDistance = pMP->GetMinDistanceInvariance();
+                Eigen::Vector3f PO = p3Dw-OwCam;
+                const float dist = PO.norm();
 
-                const int dist = DescriptorDistance(dMP,dKF);
+                if(dist<minDistance || dist>maxDistance)
+                    continue;
 
-                if(dist<bestDist)
+                Eigen::Vector3f Pn = pMP->GetNormal();
+                if(PO.dot(Pn)<0.5*dist)
+                    continue;
+
+                int nPredictedLevel = pMP->PredictScale(dist,pKF);
+                const float radius = th*pKF->mvScaleFactors[nPredictedLevel];
+
+                const vector<size_t> vIndices = pKF->GetFeaturesInArea(uv(0),uv(1),radius);
+                if(vIndices.empty())
+                    continue;
+
+                const cv::Mat dMP = pMP->GetDescriptor();
+
+                int bestDist = 256;
+                int bestIdx = -1;
+                for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
                 {
-                    bestDist = dist;
-                    bestIdx = idx;
-                }
-            }
+                    const size_t idx = *vit;
+                    if(vpMatched[idx])
+                        continue;
+                    if(useMultiRigKF && pKF->mvKeyCamIdx[idx] != camIdx)
+                        continue;
 
-            if(bestDist<=TH_LOW*ratioHamming)
-            {
-                vpMatched[bestIdx] = pMP;
-                vpMatchedKF[bestIdx] = pKFi;
-                nmatches++;
+                    const int &kpLevel= pKF->mvKeysUn[idx].octave;
+                    if(kpLevel<nPredictedLevel-1 || kpLevel>nPredictedLevel)
+                        continue;
+
+                    const cv::Mat &dKF = pKF->mDescriptors.row(idx);
+                    const int dist = DescriptorDistance(dMP,dKF);
+
+                    if(dist<bestDist)
+                    {
+                        bestDist = dist;
+                        bestIdx = idx;
+                    }
+                }
+
+                if(bestDist<=TH_LOW*ratioHamming)
+                {
+                    vpMatched[bestIdx] = pMP;
+                    vpMatchedKF[bestIdx] = pKFi;
+                    nmatches++;
+                    break;
+                }
             }
 
         }
@@ -1151,12 +1142,13 @@ namespace ORB_SLAM3
         Sophus::SE3f Tcw;
         Eigen::Vector3f Ow;
 
-        if(bRight){
+        const bool useMultiRigKF = (pKF->mnCams > 1 && pKF->NLeft == -1);
+        if(!useMultiRigKF && bRight){
             Tcw = pKF->GetRightPose();
             Ow = pKF->GetRightCameraCenter();
             pCamera = pKF->mpCamera2;
         }
-        else{
+        else if(!useMultiRigKF){
             Tcw = pKF->GetPose();
             Ow = pKF->GetCameraCenter();
             pCamera = pKF->mpCamera;
@@ -1192,6 +1184,123 @@ namespace ORB_SLAM3
             else if(pMP->IsInKeyFrame(pKF))
             {
                 count_isinKF++;
+                continue;
+            }
+
+            if(useMultiRigKF)
+            {
+                for(int camIdx = 0; camIdx < pKF->mnCams; ++camIdx)
+                {
+                    Tcw = pKF->GetTcwCam(camIdx);
+                    Ow = Tcw.inverse().translation();
+                    pCamera = pKF->mvpCameras[camIdx];
+
+                    Eigen::Vector3f p3Dw = pMP->GetWorldPos();
+                    Eigen::Vector3f p3Dc = Tcw * p3Dw;
+
+                    if(p3Dc(2)<0.0f)
+                    {
+                        count_negdepth++;
+                        continue;
+                    }
+
+                    const float invz = 1/p3Dc(2);
+                    const Eigen::Vector2f uv = pCamera->project(p3Dc);
+
+                    if(!pKF->IsInImage(uv(0),uv(1)))
+                    {
+                        count_notinim++;
+                        continue;
+                    }
+
+                    const float ur = uv(0)-bf*invz;
+
+                    const float maxDistance = pMP->GetMaxDistanceInvariance();
+                    const float minDistance = pMP->GetMinDistanceInvariance();
+                    Eigen::Vector3f PO = p3Dw-Ow;
+                    const float dist3D = PO.norm();
+
+                    if(dist3D<minDistance || dist3D>maxDistance) {
+                        count_dist++;
+                        continue;
+                    }
+
+                    Eigen::Vector3f Pn = pMP->GetNormal();
+
+                    if(PO.dot(Pn)<0.5*dist3D)
+                    {
+                        count_normal++;
+                        continue;
+                    }
+
+                    int nPredictedLevel = pMP->PredictScale(dist3D,pKF);
+                    const float radius = th*pKF->mvScaleFactors[nPredictedLevel];
+
+                    const vector<size_t> vIndices = pKF->GetFeaturesInArea(uv(0),uv(1),radius,false);
+
+                    if(vIndices.empty())
+                    {
+                        count_notidx++;
+                        continue;
+                    }
+
+                    const cv::Mat dMP = pMP->GetDescriptor();
+
+                    int bestDist = 256;
+                    int bestIdx = -1;
+                    for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
+                    {
+                        size_t idx = *vit;
+                        if(pKF->mvKeyCamIdx[idx] != camIdx)
+                            continue;
+
+                        const cv::KeyPoint &kp = pKF->mvKeysUn[idx];
+                        const int &kpLevel= kp.octave;
+
+                        if(kpLevel<nPredictedLevel-1 || kpLevel>nPredictedLevel)
+                            continue;
+
+                        const float &kpx = kp.pt.x;
+                        const float &kpy = kp.pt.y;
+                        const float ex = uv(0)-kpx;
+                        const float ey = uv(1)-kpy;
+                        const float e2 = ex*ex+ey*ey;
+
+                        if(e2*pKF->mvInvLevelSigma2[kpLevel]>5.99)
+                            continue;
+
+                        const cv::Mat &dKF = pKF->mDescriptors.row(idx);
+                        const int dist = DescriptorDistance(dMP,dKF);
+
+                        if(dist<bestDist)
+                        {
+                            bestDist = dist;
+                            bestIdx = idx;
+                        }
+                    }
+
+                    if(bestDist<=TH_LOW)
+                    {
+                        MapPoint* pMPinKF = pKF->GetMapPoint(bestIdx);
+                        if(pMPinKF)
+                        {
+                            if(!pMPinKF->isBad())
+                            {
+                                if(pMPinKF->Observations()>pMP->Observations())
+                                    pMP->Replace(pMPinKF);
+                                else
+                                    pMPinKF->Replace(pMP);
+                            }
+                        }
+                        else
+                        {
+                            pMP->AddObservation(pKF,bestIdx);
+                            pKF->AddMapPoint(pMP,bestIdx);
+                        }
+                        nFused++;
+                        break;
+                    }
+                }
                 continue;
             }
 
@@ -1685,6 +1794,7 @@ namespace ORB_SLAM3
 
         const Sophus::SE3f Tcw = CurrentFrame.GetPose();
         const Eigen::Vector3f twc = Tcw.inverse().translation();
+        const bool useMultiRig = (CurrentFrame.mnCams > 1 && CurrentFrame.Nleft == -1);
 
         const Sophus::SE3f Tlw = LastFrame.GetPose();
         const Eigen::Vector3f tlc = Tlw * twc;
@@ -1699,6 +1809,90 @@ namespace ORB_SLAM3
             {
                 if(!LastFrame.mvbOutlier[i])
                 {
+                    if(useMultiRig)
+                    {
+                        int camIdx = 0;
+                        if(!LastFrame.mvKeyCamIdx.empty())
+                            camIdx = LastFrame.mvKeyCamIdx[i];
+                        if(camIdx < 0 || camIdx >= static_cast<int>(CurrentFrame.mvpCameras.size()))
+                            camIdx = 0;
+
+                        const Sophus::SE3f TcwCam = CurrentFrame.GetTcwCam(camIdx);
+                        Eigen::Vector3f x3Dw = pMP->GetWorldPos();
+                        Eigen::Vector3f x3Dc = TcwCam * x3Dw;
+
+                        const float invzc = 1.0/x3Dc(2);
+                        if(invzc<0)
+                            continue;
+
+                        GeometricCamera* pCamera = CurrentFrame.mvpCameras[camIdx];
+                        Eigen::Vector2f uv = pCamera->project(x3Dc);
+
+                        if(uv(0)<CurrentFrame.mnMinX || uv(0)>CurrentFrame.mnMaxX)
+                            continue;
+                        if(uv(1)<CurrentFrame.mnMinY || uv(1)>CurrentFrame.mnMaxY)
+                            continue;
+
+                        int nLastOctave = LastFrame.mvKeysUn[i].octave;
+                        float radius = th*CurrentFrame.mvScaleFactors[nLastOctave];
+
+                        vector<size_t> vIndices2;
+                        if(bForward)
+                            vIndices2 = CurrentFrame.GetFeaturesInArea(uv(0),uv(1), radius, nLastOctave);
+                        else if(bBackward)
+                            vIndices2 = CurrentFrame.GetFeaturesInArea(uv(0),uv(1), radius, 0, nLastOctave);
+                        else
+                            vIndices2 = CurrentFrame.GetFeaturesInArea(uv(0),uv(1), radius, nLastOctave-1, nLastOctave+1);
+
+                        if(vIndices2.empty())
+                            continue;
+
+                        const cv::Mat dMP = pMP->GetDescriptor();
+
+                        int bestDist = 256;
+                        int bestIdx2 = -1;
+
+                        for(vector<size_t>::const_iterator vit=vIndices2.begin(), vend=vIndices2.end(); vit!=vend; vit++)
+                        {
+                            const size_t i2 = *vit;
+                            if(CurrentFrame.mvpMapPoints[i2])
+                                if(CurrentFrame.mvpMapPoints[i2]->Observations()>0)
+                                    continue;
+                            if(CurrentFrame.mvKeyCamIdx[i2] != camIdx)
+                                continue;
+
+                            const cv::Mat &d = CurrentFrame.mDescriptors.row(i2);
+                            const int dist = DescriptorDistance(dMP,d);
+
+                            if(dist<bestDist)
+                            {
+                                bestDist=dist;
+                                bestIdx2=i2;
+                            }
+                        }
+
+                        if(bestDist<=TH_HIGH)
+                        {
+                            CurrentFrame.mvpMapPoints[bestIdx2]=pMP;
+                            nmatches++;
+
+                            if(mbCheckOrientation)
+                            {
+                                cv::KeyPoint kpLF = LastFrame.mvKeysUn[i];
+                                cv::KeyPoint kpCF = CurrentFrame.mvKeysUn[bestIdx2];
+                                float rot = kpLF.angle-kpCF.angle;
+                                if(rot<0.0)
+                                    rot+=360.0f;
+                                int bin = round(rot*factor);
+                                if(bin==HISTO_LENGTH)
+                                    bin=0;
+                                assert(bin>=0 && bin<HISTO_LENGTH);
+                                rotHist[bin].push_back(bestIdx2);
+                            }
+                        }
+                        continue;
+                    }
+
                     // Project
                     Eigen::Vector3f x3Dw = pMP->GetWorldPos();
                     Eigen::Vector3f x3Dc = Tcw * x3Dw;
@@ -1892,6 +2086,7 @@ namespace ORB_SLAM3
 
         const Sophus::SE3f Tcw = CurrentFrame.GetPose();
         Eigen::Vector3f Ow = Tcw.inverse().translation();
+        const bool useMultiRig = (CurrentFrame.mnCams > 1 && CurrentFrame.Nleft == -1);
 
         // Rotation Histogram (to check rotation consistency)
         vector<int> rotHist[HISTO_LENGTH];
@@ -1909,6 +2104,86 @@ namespace ORB_SLAM3
             {
                 if(!pMP->isBad() && !sAlreadyFound.count(pMP))
                 {
+                    if(useMultiRig)
+                    {
+                        int camIdx = 0;
+                        if(pKF->mnCams > 1 && !pKF->mvKeyCamIdx.empty())
+                            camIdx = pKF->mvKeyCamIdx[i];
+                        if(camIdx < 0 || camIdx >= static_cast<int>(CurrentFrame.mvpCameras.size()))
+                            camIdx = 0;
+
+                        const Sophus::SE3f TcwCam = CurrentFrame.GetTcwCam(camIdx);
+                        Eigen::Vector3f x3Dw = pMP->GetWorldPos();
+                        Eigen::Vector3f x3Dc = TcwCam * x3Dw;
+
+                        GeometricCamera* pCamera = CurrentFrame.mvpCameras[camIdx];
+                        const Eigen::Vector2f uv = pCamera->project(x3Dc);
+
+                        if(uv(0)<CurrentFrame.mnMinX || uv(0)>CurrentFrame.mnMaxX)
+                            continue;
+                        if(uv(1)<CurrentFrame.mnMinY || uv(1)>CurrentFrame.mnMaxY)
+                            continue;
+
+                        Eigen::Vector3f PO = x3Dw-TcwCam.inverse().translation();
+                        float dist3D = PO.norm();
+
+                        const float maxDistance = pMP->GetMaxDistanceInvariance();
+                        const float minDistance = pMP->GetMinDistanceInvariance();
+
+                        if(dist3D<minDistance || dist3D>maxDistance)
+                            continue;
+
+                        int nPredictedLevel = pMP->PredictScale(dist3D,&CurrentFrame);
+                        const float radius = th*CurrentFrame.mvScaleFactors[nPredictedLevel];
+
+                        const vector<size_t> vIndices2 = CurrentFrame.GetFeaturesInArea(uv(0), uv(1), radius, nPredictedLevel-1, nPredictedLevel+1);
+                        if(vIndices2.empty())
+                            continue;
+
+                        const cv::Mat dMP = pMP->GetDescriptor();
+
+                        int bestDist = 256;
+                        int bestIdx2 = -1;
+
+                        for(vector<size_t>::const_iterator vit=vIndices2.begin(); vit!=vIndices2.end(); vit++)
+                        {
+                            const size_t i2 = *vit;
+                            if(CurrentFrame.mvpMapPoints[i2])
+                                continue;
+                            if(CurrentFrame.mvKeyCamIdx[i2] != camIdx)
+                                continue;
+
+                            const cv::Mat &d = CurrentFrame.mDescriptors.row(i2);
+
+                            const int dist = DescriptorDistance(dMP,d);
+
+                            if(dist<bestDist)
+                            {
+                                bestDist=dist;
+                                bestIdx2=i2;
+                            }
+                        }
+
+                        if(bestDist<=ORBdist)
+                        {
+                            CurrentFrame.mvpMapPoints[bestIdx2]=pMP;
+                            nmatches++;
+
+                            if(mbCheckOrientation)
+                            {
+                                float rot = pKF->mvKeysUn[i].angle-CurrentFrame.mvKeysUn[bestIdx2].angle;
+                                if(rot<0.0)
+                                    rot+=360.0f;
+                                int bin = round(rot*factor);
+                                if(bin==HISTO_LENGTH)
+                                    bin=0;
+                                assert(bin>=0 && bin<HISTO_LENGTH);
+                                rotHist[bin].push_back(bestIdx2);
+                            }
+                        }
+                        continue;
+                    }
+
                     //Project
                     Eigen::Vector3f x3Dw = pMP->GetWorldPos();
                     Eigen::Vector3f x3Dc = Tcw * x3Dw;
