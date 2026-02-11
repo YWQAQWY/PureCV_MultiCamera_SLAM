@@ -67,6 +67,11 @@ public:
     // Constructor for Monocular cameras.
     Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, GeometricCamera* pCamera, cv::Mat &distCoef, const float &bf, const float &thDepth, Frame* pPrevF = static_cast<Frame*>(NULL), const IMU::Calib &ImuCalib = IMU::Calib());
 
+    Frame(const std::vector<cv::Mat> &vIm, const double &timeStamp, ORBextractor* extractor,
+          ORBVocabulary* voc, const std::vector<GeometricCamera*> &vpCameras,
+          const std::vector<cv::Mat> &vDistCoef, const std::vector<Sophus::SE3f> &vTbc,
+          Frame* pPrevF = static_cast<Frame*>(NULL), const IMU::Calib &ImuCalib = IMU::Calib());
+
     // Destructor
     // ~Frame();
 
@@ -241,10 +246,16 @@ public:
     // ORB descriptor, each row associated to a keypoint.
     cv::Mat mDescriptors, mDescriptorsRight;
 
+    std::vector<std::vector<cv::KeyPoint>> mvvKeys;
+    std::vector<cv::Mat> mvDescriptors;
+
     // MapPoints associated to keypoints, NULL pointer if no association.
     // Flag to identify outlier associations.
     std::vector<bool> mvbOutlier;
     int mnCloseMPs;
+
+    std::vector<Sophus::SE3f> mvTbc;
+    std::vector<GeometricCamera*> mvpCameras;
 
     // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
     static float mfGridElementWidthInv;

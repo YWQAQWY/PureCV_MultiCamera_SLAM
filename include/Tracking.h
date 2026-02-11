@@ -72,6 +72,7 @@ public:
     Sophus::SE3f GrabImageStereo(const cv::Mat &imRectLeft,const cv::Mat &imRectRight, const double &timestamp, string filename);
     Sophus::SE3f GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp, string filename);
     Sophus::SE3f GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename);
+    Sophus::SE3f GrabImageMulti(const std::vector<cv::Mat> &vIm, const double &timestamp, string filename);
 
     void GrabImuData(const IMU::Point &imuMeasurement);
 
@@ -139,6 +140,7 @@ public:
     Frame mLastFrame;
 
     cv::Mat mImGray;
+    std::vector<cv::Mat> mvImGray;
 
     // Initialization Variables (Monocular)
     std::vector<int> mvIniLastMatches;
@@ -290,6 +292,7 @@ protected:
     cv::Mat mK;
     Eigen::Matrix3f mK_;
     cv::Mat mDistCoef;
+    std::vector<cv::Mat> mvDistCoef;
     float mbf;
     float mImageScale;
 
@@ -340,6 +343,10 @@ protected:
     //int nMapChangeIndex;
 
     int mnNumDataset;
+
+    int mnCams;
+    std::vector<GeometricCamera*> mvpCameras;
+    std::vector<Sophus::SE3f> mvTbc;
 
     ofstream f_track_stats;
 

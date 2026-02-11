@@ -90,6 +90,11 @@ namespace ORB_SLAM3 {
         float accWalk() {return accWalk_;}
         float imuFrequency() {return imuFrequency_;}
         Sophus::SE3f Tbc() {return Tbc_;}
+        Sophus::SE3f Tbc(int camIdx) {
+            if(camIdx >= 0 && camIdx < static_cast<int>(vTbc_.size()))
+                return vTbc_[camIdx];
+            return Sophus::SE3f();
+        }
         bool insertKFsWhenLost() {return insertKFsWhenLost_;}
 
         float depthMapFactor() {return depthMapFactor_;}
@@ -116,6 +121,21 @@ namespace ORB_SLAM3 {
         std::string atlasSaveFile() {return sSaveto_;}
 
         float thFarPoints() {return thFarPoints_;}
+
+        int numCams() const {return nCams_;}
+        GeometricCamera* camera(int camIdx) {
+            if(camIdx >= 0 && camIdx < static_cast<int>(vCalibration_.size()))
+                return vCalibration_[camIdx];
+            return nullptr;
+        }
+        cv::Mat cameraDistortionCoef(int camIdx) {
+            if(camIdx >= 0 && camIdx < static_cast<int>(vPinHoleDistorsions_.size())){
+                const auto &dist = vPinHoleDistorsions_[camIdx];
+                if(!dist.empty())
+                    return cv::Mat(dist.size(), 1, CV_32F, const_cast<float*>(dist.data()));
+            }
+            return cv::Mat();
+        }
 
         cv::Mat M1l() {return M1l_;}
         cv::Mat M2l() {return M2l_;}
@@ -158,6 +178,7 @@ namespace ORB_SLAM3 {
 
         int sensor_;
         CameraType cameraType_;     //Camera type
+        int nCams_;
 
         /*
          * Visual stuff
@@ -165,6 +186,11 @@ namespace ORB_SLAM3 {
         GeometricCamera* calibration1_, *calibration2_;   //Camera calibration
         GeometricCamera* originalCalib1_, *originalCalib2_;
         std::vector<float> vPinHoleDistorsion1_, vPinHoleDistorsion2_;
+        std::vector<GeometricCamera*> vCalibration_;
+        std::vector<GeometricCamera*> vOriginalCalibration_;
+        std::vector<std::vector<float>> vPinHoleDistorsions_;
+        std::vector<Sophus::SE3f> vTwc_;
+        std::vector<Sophus::SE3f> vTbc_;
 
         cv::Size originalImSize_, newImSize_;
         float fps_;
