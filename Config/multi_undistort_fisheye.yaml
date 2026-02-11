@@ -70,8 +70,8 @@ Camera3.width: 1920
 Camera3.height: 1536
 
 # Rig settings
-Rig.main_cam: "Front"
-Rig.init_cam: "Front"
+#Rig.main_cam: "Front"
+#Rig.init_cam: "Front"
 Rig.main_cam_index: 1 
 Rig.gate_inliers: [15, 5, 5, 5]
 Rig.gate_reproj: [5.0, 5.0, 5.0, 5.0]

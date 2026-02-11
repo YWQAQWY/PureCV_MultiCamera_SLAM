@@ -1509,6 +1509,7 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
     mCurrentFrame.mNameFile = filename;
     mCurrentFrame.mnDataset = mnNumDataset;
     mCurrentFrame.mMainCamIndex = mainCam;
+    mCurrentFrame.mvKeyPointCamId.assign(mCurrentFrame.N, mCurrentFrame.mMainCamIndex);
 
 #ifdef REGISTER_TIMES
     vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
@@ -1614,6 +1615,7 @@ Sophus::SE3f Tracking::GrabImageMonocular(const cv::Mat &im, const double &times
     mCurrentFrame.mnDataset = mnNumDataset;
     if(mpSettings)
         mCurrentFrame.mMainCamIndex = mpSettings->mainCamIndex();
+    mCurrentFrame.mvKeyPointCamId.assign(mCurrentFrame.N, mCurrentFrame.mMainCamIndex);
 
 #ifdef REGISTER_TIMES
     vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
@@ -1674,6 +1676,8 @@ Sophus::SE3f Tracking::GrabImageMultiCamera(const std::vector<cv::Mat> &vIm, con
 
     mCurrentFrame.mNameFile = filename;
     mCurrentFrame.mnDataset = mnNumDataset;
+    mCurrentFrame.mMainCamIndex = mainCam;
+    mCurrentFrame.mvKeyPointCamId.assign(mCurrentFrame.N, mCurrentFrame.mMainCamIndex);
 
 #ifdef REGISTER_TIMES
     vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);

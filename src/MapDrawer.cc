@@ -206,7 +206,7 @@ void MapDrawer::DrawMapPoints()
     {
         if((*sit)->isBad())
             continue;
-        if((*sit)->mnFirstKFid <= static_cast<long int>(initKFid))
+        if((*sit)->mnFirstKFid <= static_cast<long int>(firstDisplayKFid))
             continue;
         const int obs = (*sit)->Observations();
         const int auxObs = (*sit)->AuxObservations();

@@ -227,6 +227,7 @@ namespace ORB_SLAM3
         vpMapPointMatches = vector<MapPoint*>(F.N,static_cast<MapPoint*>(NULL));
 
         const DBoW2::FeatureVector &vFeatVecKF = pKF->mFeatVec;
+        const bool useCamIdFilter = !pKF->mvKeyPointCamId.empty() && !F.mvKeyPointCamId.empty();
 
         int nmatches=0;
 
@@ -278,6 +279,12 @@ namespace ORB_SLAM3
                             if(vpMapPointMatches[realIdxF])
                                 continue;
 
+                            if(useCamIdFilter && realIdxKF < pKF->mvKeyPointCamId.size() && realIdxF < F.mvKeyPointCamId.size())
+                            {
+                                if(pKF->mvKeyPointCamId[realIdxKF] != F.mvKeyPointCamId[realIdxF])
+                                    continue;
+                            }
+
                             const cv::Mat &dF = F.mDescriptors.row(realIdxF);
 
                             const int dist =  DescriptorDistance(dKF,dF);
@@ -298,6 +305,12 @@ namespace ORB_SLAM3
 
                             if(vpMapPointMatches[realIdxF])
                                 continue;
+
+                            if(useCamIdFilter && realIdxKF < pKF->mvKeyPointCamId.size() && realIdxF < F.mvKeyPointCamId.size())
+                            {
+                                if(pKF->mvKeyPointCamId[realIdxKF] != F.mvKeyPointCamId[realIdxF])
+                                    continue;
+                            }
 
                             const cv::Mat &dF = F.mDescriptors.row(realIdxF);
 
@@ -773,6 +786,7 @@ namespace ORB_SLAM3
         const DBoW2::FeatureVector &vFeatVec2 = pKF2->mFeatVec;
         const vector<MapPoint*> vpMapPoints2 = pKF2->GetMapPointMatches();
         const cv::Mat &Descriptors2 = pKF2->mDescriptors;
+        const bool useCamIdFilter = !pKF1->mvKeyPointCamId.empty() && !pKF2->mvKeyPointCamId.empty();
 
         vpMatches12 = vector<MapPoint*>(vpMapPoints1.size(),static_cast<MapPoint*>(NULL));
         vector<bool> vbMatched2(vpMapPoints2.size(),false);
@@ -828,6 +842,12 @@ namespace ORB_SLAM3
 
                         if(pMP2->isBad())
                             continue;
+
+                        if(useCamIdFilter && idx1 < pKF1->mvKeyPointCamId.size() && idx2 < pKF2->mvKeyPointCamId.size())
+                        {
+                            if(pKF1->mvKeyPointCamId[idx1] != pKF2->mvKeyPointCamId[idx2])
+                                continue;
+                        }
 
                         const cv::Mat &d2 = Descriptors2.row(idx2);
 

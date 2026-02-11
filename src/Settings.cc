@@ -568,7 +568,6 @@ namespace ORB_SLAM3 {
         for(int camIndex = 0; camIndex < nCameras_; ++camIndex){
             std::ostringstream key;
             key << "Camera" << camIndex << ".Twc";
-            // Twc is camera->body: T_{b<-c_i}
             cv::Mat cvTbc = readParameter<cv::Mat>(fSettings, key.str(), found, false);
             if(!found){
                 vTbcYaml.push_back(Sophus::SE3f());
@@ -676,6 +675,22 @@ namespace ORB_SLAM3 {
         {
             Eigen::Matrix4f Trc = vTrc_[camIndex].matrix();
             std::cout << "Camera" << camIndex << ":\n" << Trc << std::endl;
+        }
+
+        std::cout << "[RigCheck] Compare Trc with raw T_b<-c_i:" << std::endl;
+        const Sophus::SE3f TbcMainRaw = vTbcYaml[mainCamIndex_];
+        for(int camIndex = 0; camIndex < nCameras_; ++camIndex)
+        {
+            const Sophus::SE3f TrcRaw = TbcMainRaw.inverse() * vTbcYaml[camIndex];
+            const Sophus::SE3f Terr = TrcRaw.inverse() * vTrc_[camIndex];
+            Eigen::Matrix3f Rerr = Terr.rotationMatrix();
+            float cosAngle = (Rerr.trace() - 1.0f) * 0.5f;
+            cosAngle = std::max(-1.0f, std::min(1.0f, cosAngle));
+            const float angle = std::acos(cosAngle);
+            const float trans = Terr.translation().norm();
+            std::cout << "Camera" << camIndex
+                      << " angle_err(rad)=" << angle
+                      << " trans_err=" << trans << std::endl;
         }
 
         {

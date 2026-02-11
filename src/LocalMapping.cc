@@ -762,11 +762,14 @@ void LocalMapping::CreateAuxMapPoints()
             continue;
         }
 
-        GeometricCamera* pCamera = nullptr;
-        if(camIndex < static_cast<int>(vRigCameras.size()) && vRigCameras[camIndex])
-            pCamera = vRigCameras[camIndex];
-        else
-            pCamera = pKF2->mpCamera;
+        GeometricCamera* pCamera = data2->mpCamera;
+        if(!pCamera)
+        {
+            if(camIndex < static_cast<int>(vRigCameras.size()) && vRigCameras[camIndex])
+                pCamera = vRigCameras[camIndex];
+            else
+                pCamera = pKF2->mpCamera;
+        }
 
         if(!pCamera)
             continue;
@@ -808,8 +811,6 @@ void LocalMapping::CreateAuxMapPoints()
             const Eigen::Vector3f Ow2 = Twc2.translation();
             const float baseline = (Ow2 - Ow1).norm();
             const float medianDepth = pKF2->ComputeSceneMedianDepth(2);
-            if(medianDepth > 0.0f && (baseline / medianDepth) < 0.01f)
-                continue;
 
             cv::BFMatcher matcher(cv::NORM_HAMMING, true);
             std::vector<cv::DMatch> matches;
@@ -969,11 +970,14 @@ void LocalMapping::OptimizeAuxMapPoints(const std::vector<MapPoint*>& vpMapPoint
                 if(!data || obs.idx < 0 || obs.idx >= static_cast<int>(data->mvKeys.size()))
                     continue;
 
-                GeometricCamera* pCamera = nullptr;
-                if(obs.camId < static_cast<int>(vRigCameras.size()) && vRigCameras[obs.camId])
-                    pCamera = vRigCameras[obs.camId];
-                else
-                    pCamera = obs.pKF->mpCamera;
+                GeometricCamera* pCamera = data->mpCamera;
+                if(!pCamera)
+                {
+                    if(obs.camId < static_cast<int>(vRigCameras.size()) && vRigCameras[obs.camId])
+                        pCamera = vRigCameras[obs.camId];
+                    else
+                        pCamera = obs.pKF->mpCamera;
+                }
 
                 if(!pCamera)
                     continue;
@@ -1026,11 +1030,14 @@ void LocalMapping::OptimizeAuxMapPoints(const std::vector<MapPoint*>& vpMapPoint
             if(!data || obs.idx < 0 || obs.idx >= static_cast<int>(data->mvKeys.size()))
                 continue;
 
-            GeometricCamera* pCamera = nullptr;
-            if(obs.camId < static_cast<int>(vRigCameras.size()) && vRigCameras[obs.camId])
-                pCamera = vRigCameras[obs.camId];
-            else
-                pCamera = obs.pKF->mpCamera;
+            GeometricCamera* pCamera = data->mpCamera;
+            if(!pCamera)
+            {
+                if(obs.camId < static_cast<int>(vRigCameras.size()) && vRigCameras[obs.camId])
+                    pCamera = vRigCameras[obs.camId];
+                else
+                    pCamera = obs.pKF->mpCamera;
+            }
 
             if(!pCamera)
                 continue;
