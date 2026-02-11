@@ -2,6 +2,6 @@
 Vocabulary/ORBvoc.txt \
 Config/multi_undistort_fisheye.yaml \
 Config/multi_undistort_fisheye.yaml \
-/home/yanwq/project002/undistort_294/association.txt \
+/home/yanwq/project/dataset_dis/association.txt \
 1 \
-/home/yanwq/project003/ORB_SLAM3/Examples/MultiFisheye/output1_rig_dir
+/home/yanwq/project/output1
