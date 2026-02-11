@@ -529,7 +529,18 @@ Sophus::SE3f System::TrackMulti(const std::vector<cv::Mat> &vIm, const double &t
             mbResetActiveMap = false;
         }
     }
+
+    Sophus::SE3f Tcw = mpTracker->GrabImageMulti(vImToFeed,timestamp,filename);
+
+    unique_lock<mutex> lock2(mMutexState);
+    mTrackingState = mpTracker->mState;
+    mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
+    mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn;
+
+    return Tcw;
 }
+
+
 
 void System::ActivateLocalizationMode()
 {
@@ -1602,4 +1613,3 @@ string System::CalculateCheckSum(string filename, int type)
 }
 
 } //namespace ORB_SLAM
-

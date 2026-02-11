@@ -2539,7 +2539,7 @@ void Tracking::StereoInitialization()
 }
 
 
-void Tracking::MonocularInitialization()
+void Tracking::MonoculzarInitialization()
 {
 
     if(!mbReadyToInitializate)
@@ -2582,7 +2582,7 @@ void Tracking::MonocularInitialization()
     }
     else
     {
-        if (((int)mCurrentFrame.mvKeys.size()<=50)||((mSensor == System::IMU_MONOCULAR)&&(mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp>1.0)))
+        if (((int)mCurrentFrame.mvKeys.size()<=100)||((mSensor == System::IMU_MONOCULAR)&&(mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp>1.0)))
         {
             std::cout << "[Init] Reset init: keypoints=" << mCurrentFrame.mvKeys.size()
                       << " dt=" << (mLastFrame.mTimeStamp-mInitialFrame.mTimeStamp)
