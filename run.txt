@@ -10,6 +10,15 @@ Config/multi_undistort_fisheye.yaml \
 
 
 ./build.sh
+./Examples/MultiFisheye/multi_fisheye_rig \
+Vocabulary/ORBvoc.txt \
+Config/multi_undistort_fisheye.yaml \
+Config/multi_undistort_fisheye.yaml \
+/home/yanwq/project/dataset_dis/association.txt \
+1 \
+/home/yanwq/project/output1
+
+./build.sh
 
 ./Examples/MultiFisheye/multi_fisheye_rig \
 Vocabulary/ORBvoc.txt \

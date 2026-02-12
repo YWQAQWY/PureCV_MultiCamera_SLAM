@@ -2922,7 +2922,11 @@ bool Tracking::TrackReferenceKeyFrame()
     if (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
         return true;
     else
-        return nmatchesMap>=10;
+    {
+        const bool useMultiRig = (mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1);
+        const int minMapMatches = useMultiRig ? 6 : 10;
+        return nmatchesMap >= minMapMatches;
+    }
 }
 
 void Tracking::UpdateLastFrame()
@@ -3028,7 +3032,7 @@ bool Tracking::TrackWithMotionModel()
     if(mSensor==System::STEREO)
         th=7;
     else
-        th=15;
+        th=25;
 
     int nmatches = matcher.SearchByProjection(mCurrentFrame,mLastFrame,th,mSensor==System::MONOCULAR || mSensor==System::IMU_MONOCULAR);
 
@@ -3100,7 +3104,11 @@ bool Tracking::TrackWithMotionModel()
     if (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
         return true;
     else
-        return nmatchesMap>=10;
+    {
+        const bool useMultiRig = (mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1);
+        const int minMapMatches = useMultiRig ? 6 : 10;
+        return nmatchesMap >= minMapMatches;
+    }
 }
 
 bool Tracking::TrackLocalMap()
@@ -3245,7 +3253,7 @@ bool Tracking::TrackLocalMap()
     // Decide if the tracking was succesful
     // More restrictive if there was a relocalization recently
     mpLocalMapper->mnMatchesInliers=mnMatchesInliers;
-    if(mnMatchesInliers<15) //50 //if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<20) 
+    if(mnMatchesInliers<15) //50 //if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<15) 
         return false;
 
     if((mnMatchesInliers>10)&&(mState==RECENTLY_LOST))

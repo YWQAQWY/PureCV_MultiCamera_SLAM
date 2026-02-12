@@ -1800,6 +1800,15 @@ namespace ORB_SLAM3
         const Sophus::SE3f Tcw = CurrentFrame.GetPose();
         const Eigen::Vector3f twc = Tcw.inverse().translation();
         const bool useMultiRig = (CurrentFrame.mnCams > 1 && CurrentFrame.Nleft == -1);
+        std::vector<int> projInBounds;
+        std::vector<int> projCandidates;
+        std::vector<int> projMatches;
+        if(useMultiRig)
+        {
+            projInBounds.assign(CurrentFrame.mnCams, 0);
+            projCandidates.assign(CurrentFrame.mnCams, 0);
+            projMatches.assign(CurrentFrame.mnCams, 0);
+        }
 
         const Sophus::SE3f Tlw = LastFrame.GetPose();
         const Eigen::Vector3f tlc = Tlw * twc;
@@ -1838,6 +1847,8 @@ namespace ORB_SLAM3
                         if(uv(1)<CurrentFrame.mnMinY || uv(1)>CurrentFrame.mnMaxY)
                             continue;
 
+                        projInBounds[camIdx]++;
+
                         int nLastOctave = LastFrame.mvKeysUn[i].octave;
                         float radius = th*CurrentFrame.mvScaleFactors[nLastOctave];
 
@@ -1851,6 +1862,8 @@ namespace ORB_SLAM3
 
                         if(vIndices2.empty())
                             continue;
+
+                        projCandidates[camIdx] += static_cast<int>(vIndices2.size());
 
                         const cv::Mat dMP = pMP->GetDescriptor();
 
@@ -1880,6 +1893,7 @@ namespace ORB_SLAM3
                         {
                             CurrentFrame.mvpMapPoints[bestIdx2]=pMP;
                             nmatches++;
+                            projMatches[camIdx]++;
 
                             if(mbCheckOrientation)
                             {
@@ -2082,6 +2096,31 @@ namespace ORB_SLAM3
             }
         }
 
+        if(useMultiRig)
+        {
+            std::cout << "[DBG-PROJ] frame=" << CurrentFrame.mnId << " inBounds=";
+            for(size_t i = 0; i < projInBounds.size(); ++i)
+            {
+                std::cout << projInBounds[i];
+                if(i + 1 < projInBounds.size())
+                    std::cout << ',';
+            }
+            std::cout << " candidates=";
+            for(size_t i = 0; i < projCandidates.size(); ++i)
+            {
+                std::cout << projCandidates[i];
+                if(i + 1 < projCandidates.size())
+                    std::cout << ',';
+            }
+            std::cout << " matches=";
+            for(size_t i = 0; i < projMatches.size(); ++i)
+            {
+                std::cout << projMatches[i];
+                if(i + 1 < projMatches.size())
+                    std::cout << ',';
+            }
+            std::cout << std::endl;
+        }
         return nmatches;
     }
 
