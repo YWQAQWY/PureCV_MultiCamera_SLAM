@@ -20,6 +20,7 @@
 #include "ORBmatcher.h"
 
 #include<limits.h>
+#include <limits>
 
 #include<opencv2/core/core.hpp>
 
@@ -1800,14 +1801,22 @@ namespace ORB_SLAM3
         const Sophus::SE3f Tcw = CurrentFrame.GetPose();
         const Eigen::Vector3f twc = Tcw.inverse().translation();
         const bool useMultiRig = (CurrentFrame.mnCams > 1 && CurrentFrame.Nleft == -1);
+        std::vector<int> projTotal;
         std::vector<int> projInBounds;
-        std::vector<int> projCandidates;
-        std::vector<int> projMatches;
+        std::vector<int> projOutOfBounds;
+        std::vector<float> minU;
+        std::vector<float> maxU;
+        std::vector<float> minV;
+        std::vector<float> maxV;
         if(useMultiRig)
         {
+            projTotal.assign(CurrentFrame.mnCams, 0);
             projInBounds.assign(CurrentFrame.mnCams, 0);
-            projCandidates.assign(CurrentFrame.mnCams, 0);
-            projMatches.assign(CurrentFrame.mnCams, 0);
+            projOutOfBounds.assign(CurrentFrame.mnCams, 0);
+            minU.assign(CurrentFrame.mnCams, std::numeric_limits<float>::infinity());
+            maxU.assign(CurrentFrame.mnCams, -std::numeric_limits<float>::infinity());
+            minV.assign(CurrentFrame.mnCams, std::numeric_limits<float>::infinity());
+            maxV.assign(CurrentFrame.mnCams, -std::numeric_limits<float>::infinity());
         }
 
         const Sophus::SE3f Tlw = LastFrame.GetPose();
@@ -1842,6 +1851,12 @@ namespace ORB_SLAM3
                         GeometricCamera* pCamera = CurrentFrame.mvpCameras[camIdx];
                         Eigen::Vector2f uv = pCamera->project(x3Dc);
 
+                        projTotal[camIdx]++;
+                        if(uv(0) < minU[camIdx]) minU[camIdx] = uv(0);
+                        if(uv(0) > maxU[camIdx]) maxU[camIdx] = uv(0);
+                        if(uv(1) < minV[camIdx]) minV[camIdx] = uv(1);
+                        if(uv(1) > maxV[camIdx]) maxV[camIdx] = uv(1);
+
                         if(uv(0)<CurrentFrame.mnMinX || uv(0)>CurrentFrame.mnMaxX)
                             continue;
                         if(uv(1)<CurrentFrame.mnMinY || uv(1)>CurrentFrame.mnMaxY)
@@ -1862,8 +1877,6 @@ namespace ORB_SLAM3
 
                         if(vIndices2.empty())
                             continue;
-
-                        projCandidates[camIdx] += static_cast<int>(vIndices2.size());
 
                         const cv::Mat dMP = pMP->GetDescriptor();
 
@@ -1893,7 +1906,6 @@ namespace ORB_SLAM3
                         {
                             CurrentFrame.mvpMapPoints[bestIdx2]=pMP;
                             nmatches++;
-                            projMatches[camIdx]++;
 
                             if(mbCheckOrientation)
                             {
@@ -2098,26 +2110,17 @@ namespace ORB_SLAM3
 
         if(useMultiRig)
         {
-            std::cout << "[DBG-PROJ] frame=" << CurrentFrame.mnId << " inBounds=";
-            for(size_t i = 0; i < projInBounds.size(); ++i)
+            std::cout << "[DBG-PROJ] frame=" << CurrentFrame.mnId;
+            for(int camIdx = 0; camIdx < CurrentFrame.mnCams; ++camIdx)
             {
-                std::cout << projInBounds[i];
-                if(i + 1 < projInBounds.size())
-                    std::cout << ',';
-            }
-            std::cout << " candidates=";
-            for(size_t i = 0; i < projCandidates.size(); ++i)
-            {
-                std::cout << projCandidates[i];
-                if(i + 1 < projCandidates.size())
-                    std::cout << ',';
-            }
-            std::cout << " matches=";
-            for(size_t i = 0; i < projMatches.size(); ++i)
-            {
-                std::cout << projMatches[i];
-                if(i + 1 < projMatches.size())
-                    std::cout << ',';
+                const Sophus::SE3f TcwCam = CurrentFrame.GetTcwCam(camIdx);
+                const Eigen::Vector3f t = TcwCam.translation();
+                std::cout << " cam" << camIdx
+                          << " t=" << t.transpose()
+                          << " proj=" << projTotal[camIdx]
+                          << " in=" << projInBounds[camIdx]
+                          << " u=[" << minU[camIdx] << ',' << maxU[camIdx] << "]"
+                          << " v=[" << minV[camIdx] << ',' << maxV[camIdx] << "]";
             }
             std::cout << std::endl;
         }

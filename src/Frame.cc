@@ -71,7 +71,10 @@ Frame::Frame(const Frame &frame)
      monoLeft(frame.monoLeft), monoRight(frame.monoRight), mvLeftToRightMatch(frame.mvLeftToRightMatch),
      mvRightToLeftMatch(frame.mvRightToLeftMatch), mvStereo3Dpoints(frame.mvStereo3Dpoints),
      mTlr(frame.mTlr), mRlr(frame.mRlr), mtlr(frame.mtlr), mTrl(frame.mTrl),
-     mTcw(frame.mTcw), mbHasPose(false), mbHasVelocity(false)
+     mTcw(frame.mTcw), mbHasPose(false), mbHasVelocity(false),
+     mvvKeys(frame.mvvKeys), mvvKeysUn(frame.mvvKeysUn), mvDescriptors(frame.mvDescriptors),
+     mvKeyCamIdx(frame.mvKeyCamIdx), mvTbc(frame.mvTbc), mvpCameras(frame.mvpCameras),
+     mvDistCoef(frame.mvDistCoef), mnCams(frame.mnCams)
 {
     for(int i=0;i<FRAME_GRID_COLS;i++)
         for(int j=0; j<FRAME_GRID_ROWS; j++){
@@ -753,26 +756,34 @@ int Frame::GetMapPointCamIdx(MapPoint* pMP) const
     int camIdx = 0;
     if(Nleft == -1 && mnCams > 1 && pMP)
     {
-        KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
-        if(pRefKF)
+        int trackCamIdx = pMP->mTrackCamIdx;
+        if(trackCamIdx >= 0 && trackCamIdx < mnCams)
         {
-            const map<KeyFrame*,vector<int>> observations = pMP->GetObservations();
-            map<KeyFrame*,vector<int>>::const_iterator it = observations.find(pRefKF);
-            if(it != observations.end())
+            camIdx = trackCamIdx;
+        }
+        else
+        {
+            KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
+            if(pRefKF)
             {
-                const vector<int> &indexes = it->second;
-                for(size_t i = 0; i < indexes.size(); ++i)
+                const map<KeyFrame*,vector<int>> observations = pMP->GetObservations();
+                map<KeyFrame*,vector<int>>::const_iterator it = observations.find(pRefKF);
+                if(it != observations.end())
                 {
-                    if(indexes[i] != -1)
+                    const vector<int> &indexes = it->second;
+                    for(size_t i = 0; i < indexes.size(); ++i)
                     {
-                        camIdx = static_cast<int>(i);
-                        break;
+                        if(indexes[i] != -1)
+                        {
+                            camIdx = static_cast<int>(i);
+                            break;
+                        }
                     }
                 }
             }
+            if(camIdx < 0 || camIdx >= mnCams)
+                camIdx = 0;
         }
-        if(camIdx < 0 || camIdx >= mnCams)
-            camIdx = 0;
     }
     return camIdx;
 }

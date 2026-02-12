@@ -3096,10 +3096,6 @@ bool Tracking::TrackWithMotionModel()
         return nmatches>20;
     }
 
-    cout << "[TMM] frame=" << mCurrentFrame.mnId
-         << " nmatchesMap=" << nmatchesMap
-         << " nmatches=" << nmatches
-         << endl;
 
     if (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
         return true;
@@ -3244,6 +3240,69 @@ bool Tracking::TrackLocalMap()
         cout << endl;
     }
 
+    if(mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1)
+    {
+        vector<int> lastFrameCounts(mCurrentFrame.mnCams, 0);
+        for(size_t i = 0; i < mLastFrame.mvpMapPoints.size(); ++i)
+        {
+            if(!mLastFrame.mvpMapPoints[i])
+                continue;
+            if(i < mLastFrame.mvKeyCamIdx.size())
+            {
+                int camIdx = mLastFrame.mvKeyCamIdx[i];
+                if(camIdx >= 0 && camIdx < mCurrentFrame.mnCams)
+                    lastFrameCounts[camIdx]++;
+            }
+        }
+
+        cout << "[DBG-LF] frame=" << mCurrentFrame.mnId << " lastFrameMP=";
+        for(size_t i = 0; i < lastFrameCounts.size(); ++i)
+        {
+            cout << lastFrameCounts[i];
+            if(i + 1 < lastFrameCounts.size())
+                cout << ',';
+        }
+        cout << endl;
+    }
+
+    if(mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1)
+    {
+        vector<int> obsCounts(mCurrentFrame.mnCams, 0);
+        for(MapPoint* pMP : mvpLocalMapPoints)
+        {
+            if(!pMP || pMP->isBad())
+                continue;
+            map<KeyFrame*, vector<int>> observations = pMP->GetObservations();
+            for(const auto &kv : observations)
+            {
+                KeyFrame* pKF = kv.first;
+                if(!pKF)
+                    continue;
+                const vector<int> &idxs = kv.second;
+                for(int idx : idxs)
+                {
+                    if(idx < 0)
+                        continue;
+                    if(idx < static_cast<int>(pKF->mvKeyCamIdx.size()))
+                    {
+                        int camIdx = pKF->mvKeyCamIdx[idx];
+                        if(camIdx >= 0 && camIdx < mCurrentFrame.mnCams)
+                            obsCounts[camIdx]++;
+                    }
+                }
+            }
+        }
+
+        cout << "[DBG-MP] frame=" << mCurrentFrame.mnId << " obs=";
+        for(size_t i = 0; i < obsCounts.size(); ++i)
+        {
+            cout << obsCounts[i];
+            if(i + 1 < obsCounts.size())
+                cout << ',';
+        }
+        cout << endl;
+    }
+
     cout << "[TLM] frame=" << mCurrentFrame.mnId
          << " postPO matches=" << aux1
          << " postPO outliers=" << aux2
@@ -3253,7 +3312,9 @@ bool Tracking::TrackLocalMap()
     // Decide if the tracking was succesful
     // More restrictive if there was a relocalization recently
     mpLocalMapper->mnMatchesInliers=mnMatchesInliers;
-    if(mnMatchesInliers<15) //50 //if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<15) 
+    const bool useMultiRig = (mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1);
+    const int minLocalInliers = useMultiRig ? 8 : 15;
+    if(mnMatchesInliers<minLocalInliers) //50 //if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<15)
         return false;
 
     if((mnMatchesInliers>10)&&(mState==RECENTLY_LOST))
@@ -3280,8 +3341,7 @@ bool Tracking::TrackLocalMap()
     }
     else
     {
-        const bool useMultiRig = (mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1);
-        const int minInliers = useMultiRig ? 20 : 30;
+        const int minInliers = useMultiRig ? 15 : 30;
         if(mnMatchesInliers<minInliers)
             return false;
         else
@@ -3354,8 +3414,10 @@ bool Tracking::NeedNewKeyFrame()
     bool bNeedToInsertClose;
     bNeedToInsertClose = (nTrackedClose<100) && (nNonTrackedClose>70);
 
+    const bool useMultiRig = (mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1);
+
     // Thresholds
-    float thRefRatio = 0.75f;
+    float thRefRatio = useMultiRig ? 0.60f : 0.75f;
     if(nKFs<2)
         thRefRatio = 0.4f;
 
@@ -3387,7 +3449,8 @@ bool Tracking::NeedNewKeyFrame()
     //Condition 1c: tracking is weak
     const bool c1c = mSensor!=System::MONOCULAR && mSensor!=System::IMU_MONOCULAR && mSensor!=System::IMU_STEREO && mSensor!=System::IMU_RGBD && (mnMatchesInliers<nRefMatches*0.25 || bNeedToInsertClose) ;
     // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
-    const bool c2 = (((mnMatchesInliers<nRefMatches*thRefRatio || bNeedToInsertClose)) && mnMatchesInliers>15);
+    const int minInliersForKF = useMultiRig ? 8 : 15;
+    const bool c2 = (((mnMatchesInliers<nRefMatches*thRefRatio || bNeedToInsertClose)) && mnMatchesInliers>minInliersForKF);
 
     //std::cout << "NeedNewKF: c1a=" << c1a << "; c1b=" << c1b << "; c1c=" << c1c << "; c2=" << c2 << std::endl;
     // Temporal condition for Inertial cases
