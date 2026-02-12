@@ -110,16 +110,6 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
     vector<MapPoint*> vpMapPointEdgeStereo;
     vpMapPointEdgeStereo.reserve(nExpectedSize);
 
-    vector<ORB_SLAM3::EdgeSE3ProjectXYZToBody*> vpEdgesBody;
-    vpEdgesBody.reserve(nExpectedSize);
-
-    vector<KeyFrame*> vpEdgeKFBody;
-    vpEdgeKFBody.reserve(nExpectedSize);
-
-    vector<MapPoint*> vpMapPointEdgeBody;
-    vpMapPointEdgeBody.reserve(nExpectedSize);
-
-
     // Set KeyFrame vertices
 
     for(size_t i=0; i<vpKFs.size(); i++)
@@ -205,7 +195,8 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
                     Sophus::SE3f Tbc = (camIdx >= 0 && camIdx < static_cast<int>(pKF->mvTbc.size()))
                         ? pKF->mvTbc[camIdx]
                         : Sophus::SE3f();
-                    e->mTrl = g2o::SE3Quat(Tbc.unit_quaternion().cast<double>(), Tbc.translation().cast<double>());
+                    Sophus::SE3f Tcb = Tbc.inverse();
+                    e->mTrl = g2o::SE3Quat(Tcb.unit_quaternion().cast<double>(), Tcb.translation().cast<double>());
 
                     optimizer.addEdge(e);
 
@@ -947,7 +938,8 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     Sophus::SE3f Tbc = (camIdx >= 0 && camIdx < static_cast<int>(pFrame->mvTbc.size()))
                         ? pFrame->mvTbc[camIdx]
                         : Sophus::SE3f();
-                    e->mTrl = g2o::SE3Quat(Tbc.unit_quaternion().cast<double>(), Tbc.translation().cast<double>());
+                    Sophus::SE3f Tcb = Tbc.inverse();
+                    e->mTrl = g2o::SE3Quat(Tcb.unit_quaternion().cast<double>(), Tcb.translation().cast<double>());
 
                     optimizer.addEdge(e);
 
@@ -1426,8 +1418,9 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 
                         if(camIdx < pKFi->mvTbc.size())
                         {
-                            Sophus::SE3f Tbc = pKFi->mvTbc[camIdx];
-                            e->mTrl = g2o::SE3Quat(Tbc.unit_quaternion().cast<double>(), Tbc.translation().cast<double>());
+                    Sophus::SE3f Tbc = pKFi->mvTbc[camIdx];
+                    Sophus::SE3f Tcb = Tbc.inverse();
+                    e->mTrl = g2o::SE3Quat(Tcb.unit_quaternion().cast<double>(), Tcb.translation().cast<double>());
                         }
 
                         if(camIdx < pKFi->mvpCameras.size())
@@ -3762,6 +3755,15 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pMainKF,vector<KeyFrame*> vpAdju
     vector<MapPoint*> vpMapPointEdgeStereo;
     vpMapPointEdgeStereo.reserve(nExpectedSize);
 
+    vector<ORB_SLAM3::EdgeSE3ProjectXYZToBody*> vpEdgesBody;
+    vpEdgesBody.reserve(nExpectedSize);
+
+    vector<KeyFrame*> vpEdgeKFBody;
+    vpEdgeKFBody.reserve(nExpectedSize);
+
+    vector<MapPoint*> vpMapPointEdgeBody;
+    vpMapPointEdgeBody.reserve(nExpectedSize);
+
     const float thHuber2D = sqrt(5.99);
     const float thHuber3D = sqrt(7.815);
 
@@ -3824,8 +3826,9 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pMainKF,vector<KeyFrame*> vpAdju
 
                     if(camIdx < pKF->mvTbc.size())
                     {
-                        Sophus::SE3f Tbc = pKF->mvTbc[camIdx];
-                        e->mTrl = g2o::SE3Quat(Tbc.unit_quaternion().cast<double>(), Tbc.translation().cast<double>());
+                    Sophus::SE3f Tbc = pKF->mvTbc[camIdx];
+                    Sophus::SE3f Tcb = Tbc.inverse();
+                    e->mTrl = g2o::SE3Quat(Tcb.unit_quaternion().cast<double>(), Tcb.translation().cast<double>());
                     }
 
                     if(camIdx < pKF->mvpCameras.size())

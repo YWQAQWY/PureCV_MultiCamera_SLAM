@@ -506,7 +506,7 @@ protected:
     Eigen::Matrix3f mK_;
 
     // Mutex
-    std::mutex mMutexPose; // for pose, velocity and biases
+    mutable std::mutex mMutexPose; // for pose, velocity and biases
     std::mutex mMutexConnections;
     std::mutex mMutexFeatures;
     std::mutex mMutexMap;
@@ -530,7 +530,7 @@ public:
     Sophus::SE3<float> GetRightPose();
     Sophus::SE3<float> GetRightPoseInverse();
 
-    Eigen::Vector3f GetRightCameraCenter();
+    Eigen::Vector3f GetRightCameraCenter() const;
     Eigen::Matrix<float,3,3> GetRightRotation();
     Eigen::Vector3f GetRightTranslation();
 

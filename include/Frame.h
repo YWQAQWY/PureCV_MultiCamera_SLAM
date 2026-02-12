@@ -152,6 +152,7 @@ public:
     }
 
     Sophus::SE3f GetTcwCam(int camIdx) const;
+    int GetMapPointCamIdx(MapPoint* pMP) const;
 
     inline Eigen::Matrix3f GetRwc() const {
         return mRwc;

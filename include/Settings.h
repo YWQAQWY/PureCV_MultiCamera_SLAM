@@ -164,9 +164,10 @@ namespace ORB_SLAM3 {
             }
         }
 
-        void readCamera1(cv::FileStorage& fSettings);
-        void readCamera2(cv::FileStorage& fSettings);
-        void readImageInfo(cv::FileStorage& fSettings);
+    void readCamera1(cv::FileStorage& fSettings);
+    void readCamera2(cv::FileStorage& fSettings);
+    void readMultiCamera(cv::FileStorage& fSettings);
+    void readImageInfo(cv::FileStorage& fSettings);
         void readIMU(cv::FileStorage& fSettings);
         void readRGBD(cv::FileStorage& fSettings);
         void readORB(cv::FileStorage& fSettings);

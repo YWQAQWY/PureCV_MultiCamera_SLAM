@@ -23,6 +23,10 @@
 #include <System.h>
 #include <Tracking.h>
 #include <MapPoint.h>
+#include <RigViewer.h>
+
+
+#include <thread>
 
 using namespace std;
 
@@ -519,6 +523,9 @@ int main(int argc, char **argv)
     //ORB_SLAM3::System SLAM(vocab_path, settings_path, ORB_SLAM3::System::MONOCULAR, ture);
     float imageScale = SLAM.GetImageScale();
 
+    ORB_SLAM3::RigViewer rig_viewer(SLAM.GetTracker(), SLAM.GetAtlas());
+    std::thread rig_viewer_thread(&ORB_SLAM3::RigViewer::Run, &rig_viewer);
+
     array<CameraIntrinsics, 4> intrinsics;
     array<cv::Matx33f, 4> K;
     array<cv::Ptr<cv::ORB>, 4> orb_extractors;
@@ -652,6 +659,10 @@ int main(int argc, char **argv)
     }
 
     SLAM.Shutdown();
+
+    rig_viewer.RequestFinish();
+    if(rig_viewer_thread.joinable())
+        rig_viewer_thread.join();
 
     for (int cam = 0; cam < 4; ++cam) {
         string map_path = output_dir + "/map_rig_cam" + to_string(cam) + ".xyz";

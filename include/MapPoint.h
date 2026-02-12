@@ -177,6 +177,7 @@ public:
     bool mbTrackInView, mbTrackInViewR;
     int mnTrackScaleLevel, mnTrackScaleLevelR;
     float mTrackViewCos, mTrackViewCosR;
+    int mTrackCamIdx;
     long unsigned int mnTrackReferenceForFrame;
     long unsigned int mnLastFrameSeen;
 

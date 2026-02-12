@@ -81,6 +81,7 @@ namespace ORB_SLAM3
                     int bestIdx =-1 ;
 
                     // Get best and second matches with near keypoints
+                    const bool useMultiRig = (F.Nleft == -1 && F.mnCams > 1);
                     for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
                     {
                         const size_t idx = *vit;
@@ -88,6 +89,9 @@ namespace ORB_SLAM3
                         if(F.mvpMapPoints[idx])
                             if(F.mvpMapPoints[idx]->Observations()>0)
                                 continue;
+
+                        if(useMultiRig && F.mvKeyCamIdx[idx] != pMP->mTrackCamIdx)
+                            continue;
 
                         if(F.Nleft == -1 && F.mvuRight[idx]>0)
                         {
@@ -436,7 +440,6 @@ namespace ORB_SLAM3
         Sophus::SE3f Tcw = Sophus::SE3f(Scw.rotationMatrix(),Scw.translation()/Scw.scale());
         Eigen::Vector3f Ow = Tcw.inverse().translation();
         const bool useMultiRigKF = (pKF->mnCams > 1 && pKF->NLeft == -1);
-        const bool useMultiRigKF = (pKF->mnCams > 1 && pKF->NLeft == -1);
 
         // Set of MapPoints already found in the KeyFrame
         set<MapPoint*> spAlreadyFound(vpMatched.begin(), vpMatched.end());
@@ -456,7 +459,8 @@ namespace ORB_SLAM3
             // Get 3D Coords.
             Eigen::Vector3f p3Dw = pMP->GetWorldPos();
 
-            const int nCams = useMultiRigKF ? pKF->mnCams : 1;
+        const bool useMultiRigKF = (pKF->mnCams > 1 && pKF->NLeft == -1);
+        const int nCams = useMultiRigKF ? pKF->mnCams : 1;
             for(int camIdx = 0; camIdx < nCams; ++camIdx)
             {
                 const Sophus::SE3f TcwCam = useMultiRigKF ? pKF->GetTcwCam(camIdx) : Tcw;
@@ -561,6 +565,7 @@ namespace ORB_SLAM3
             // Get 3D Coords.
             Eigen::Vector3f p3Dw = pMP->GetWorldPos();
 
+            const bool useMultiRigKF = (pKF->mnCams > 1 && pKF->NLeft == -1);
             const int nCams = useMultiRigKF ? pKF->mnCams : 1;
             for(int camIdx = 0; camIdx < nCams; ++camIdx)
             {

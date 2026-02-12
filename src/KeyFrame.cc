@@ -146,7 +146,7 @@ Sophus::SE3f KeyFrame::GetTcwCam(int camIdx) const
     }
     if(NLeft == -1 && mnCams > 1){
         if(camIdx >= 0 && camIdx < static_cast<int>(mvTbc.size())){
-            return mvTbc[camIdx] * mTcw;
+            return mvTbc[camIdx].inverse() * mTcw;
         }
     }
     return mTcw;
@@ -1213,7 +1213,7 @@ Sophus::SE3<float> KeyFrame::GetRightPoseInverse() {
     return mTwc * mTlr;
 }
 
-Eigen::Vector3f KeyFrame::GetRightCameraCenter() {
+Eigen::Vector3f KeyFrame::GetRightCameraCenter() const {
     unique_lock<mutex> lock(mMutexPose);
 
     return (mTwc * mTlr).translation();

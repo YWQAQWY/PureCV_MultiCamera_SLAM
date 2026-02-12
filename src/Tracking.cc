@@ -1328,6 +1328,18 @@ bool Tracking::ParseORBParamFile(cv::FileStorage &fSettings)
     return true;
 }
 
+void Tracking::GetLocalMapTrackingStats(int &frameId, int &nToMatch, int &matches, int &localMapPoints,
+                                        std::vector<int> &camInliers, std::vector<int> &camOutliers)
+{
+    std::lock_guard<std::mutex> lock(mMutexLocalStats);
+    frameId = mLastStatsFrameId;
+    nToMatch = mLastLocalToMatch;
+    matches = mLastLocalMatches;
+    localMapPoints = mLastLocalMapPoints;
+    camInliers = mLastCamInliers;
+    camOutliers = mLastCamOutliers;
+}
+
 bool Tracking::ParseIMUParamFile(cv::FileStorage &fSettings)
 {
     bool b_miss_params = false;
@@ -2039,14 +2051,22 @@ void Tracking::Track()
                 if((!mbVelocity && !pCurrentMap->isImuInitialized()) || mCurrentFrame.mnId<mnLastRelocFrameId+2)
                 {
                     Verbose::PrintMess("TRACK: Track with respect to the reference KF ", Verbose::VERBOSITY_DEBUG);
+                    cout << "[TRACK] frame=" << mCurrentFrame.mnId << " path=TRKF" << endl;
                     bOK = TrackReferenceKeyFrame();
+                    cout << "[TRACK] frame=" << mCurrentFrame.mnId << " TRKF bOK=" << bOK << endl;
                 }
                 else
                 {
                     Verbose::PrintMess("TRACK: Track with motion model", Verbose::VERBOSITY_DEBUG);
+                    cout << "[TRACK] frame=" << mCurrentFrame.mnId << " path=TMM" << endl;
                     bOK = TrackWithMotionModel();
+                    cout << "[TRACK] frame=" << mCurrentFrame.mnId << " TMM bOK=" << bOK << endl;
                     if(!bOK)
+                    {
+                        cout << "[TRACK] frame=" << mCurrentFrame.mnId << " fallback=TRKF" << endl;
                         bOK = TrackReferenceKeyFrame();
+                        cout << "[TRACK] frame=" << mCurrentFrame.mnId << " TRKF bOK=" << bOK << endl;
+                    }
                 }
 
 
@@ -2221,8 +2241,13 @@ void Tracking::Track()
                 bOK = TrackLocalMap();
 
             }
-            if(!bOK)
-                cout << "Fail to track local map!" << endl;
+        if(!bOK)
+        {
+            cout << "Fail to track local map!"
+                 << " mnMatchesInliers=" << mnMatchesInliers
+                 << " localMapPoints=" << mvpLocalMapPoints.size()
+                 << endl;
+        }
         }
         else
         {
@@ -2539,7 +2564,7 @@ void Tracking::StereoInitialization()
 }
 
 
-void Tracking::MonoculzarInitialization()
+void Tracking::MonocularInitialization()
 {
 
     if(!mbReadyToInitializate)
@@ -2843,6 +2868,10 @@ bool Tracking::TrackReferenceKeyFrame()
 
     int nmatches = matcher.SearchByBoW(mpReferenceKF,mCurrentFrame,vpMapPointMatches);
 
+    cout << "[TRKF] frame=" << mCurrentFrame.mnId
+         << " nmatches=" << nmatches
+         << endl;
+
     if(nmatches<15)
     {
         cout << "TRACK_REF_KF: Less than 15 matches!!\n";
@@ -2885,6 +2914,10 @@ bool Tracking::TrackReferenceKeyFrame()
                 nmatchesMap++;
         }
     }
+
+    cout << "[TRKF] frame=" << mCurrentFrame.mnId
+         << " nmatchesMap=" << nmatchesMap
+         << endl;
 
     if (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
         return true;
@@ -3010,6 +3043,11 @@ bool Tracking::TrackWithMotionModel()
 
     }
 
+    cout << "[TMM] frame=" << mCurrentFrame.mnId
+         << " nmatches=" << nmatches
+         << " th=" << th
+         << endl;
+
     if(nmatches<20)
     {
         Verbose::PrintMess("Not enough matches!!", Verbose::VERBOSITY_NORMAL);
@@ -3054,6 +3092,11 @@ bool Tracking::TrackWithMotionModel()
         return nmatches>20;
     }
 
+    cout << "[TMM] frame=" << mCurrentFrame.mnId
+         << " nmatchesMap=" << nmatchesMap
+         << " nmatches=" << nmatches
+         << endl;
+
     if (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)
         return true;
     else
@@ -3079,6 +3122,12 @@ bool Tracking::TrackLocalMap()
             if(mCurrentFrame.mvbOutlier[i])
                 aux2++;
         }
+
+    cout << "[TLM] frame=" << mCurrentFrame.mnId
+         << " prePO matches=" << aux1
+         << " prePO outliers=" << aux2
+         << " localMapPoints=" << mvpLocalMapPoints.size()
+         << endl;
 
     int inliers;
     if (!mpAtlas->isImuInitialized())
@@ -3116,6 +3165,13 @@ bool Tracking::TrackLocalMap()
         }
 
     mnMatchesInliers = 0;
+    vector<int> inlierCounts;
+    vector<int> outlierCounts;
+    if(mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1)
+    {
+        inlierCounts.assign(mCurrentFrame.mnCams, 0);
+        outlierCounts.assign(mCurrentFrame.mnCams, 0);
+    }
 
     // Update MapPoints Statistics
     for(int i=0; i<mCurrentFrame.N; i++)
@@ -3132,16 +3188,64 @@ bool Tracking::TrackLocalMap()
                 }
                 else
                     mnMatchesInliers++;
+
+                if(!inlierCounts.empty())
+                {
+                    int camIdx = mCurrentFrame.mvKeyCamIdx[i];
+                    if(camIdx < 0 || camIdx >= mCurrentFrame.mnCams)
+                        camIdx = 0;
+                    inlierCounts[camIdx]++;
+                }
             }
             else if(mSensor==System::STEREO)
                 mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint*>(NULL);
+            else if(!outlierCounts.empty())
+            {
+                int camIdx = mCurrentFrame.mvKeyCamIdx[i];
+                if(camIdx < 0 || camIdx >= mCurrentFrame.mnCams)
+                    camIdx = 0;
+                outlierCounts[camIdx]++;
+            }
         }
     }
+
+    {
+        std::lock_guard<std::mutex> lock(mMutexLocalStats);
+        mLastStatsFrameId = mCurrentFrame.mnId;
+        mLastLocalMapPoints = static_cast<int>(mvpLocalMapPoints.size());
+        mLastCamInliers = inlierCounts;
+        mLastCamOutliers = outlierCounts;
+    }
+
+    if(!inlierCounts.empty())
+    {
+        cout << "[TLM] frame=" << mCurrentFrame.mnId << " camInliers=";
+        for(size_t i = 0; i < inlierCounts.size(); ++i)
+        {
+            cout << inlierCounts[i];
+            if(i + 1 < inlierCounts.size())
+                cout << ',';
+        }
+        cout << " camOutliers=";
+        for(size_t i = 0; i < outlierCounts.size(); ++i)
+        {
+            cout << outlierCounts[i];
+            if(i + 1 < outlierCounts.size())
+                cout << ',';
+        }
+        cout << endl;
+    }
+
+    cout << "[TLM] frame=" << mCurrentFrame.mnId
+         << " postPO matches=" << aux1
+         << " postPO outliers=" << aux2
+         << " mnMatchesInliers=" << mnMatchesInliers
+         << endl;
 
     // Decide if the tracking was succesful
     // More restrictive if there was a relocalization recently
     mpLocalMapper->mnMatchesInliers=mnMatchesInliers;
-    if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<50)
+    if(mnMatchesInliers<15) //50 //if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<20) 
         return false;
 
     if((mnMatchesInliers>10)&&(mState==RECENTLY_LOST))
@@ -3150,7 +3254,7 @@ bool Tracking::TrackLocalMap()
 
     if (mSensor == System::IMU_MONOCULAR)
     {
-        if((mnMatchesInliers<15 && mpAtlas->isImuInitialized())||(mnMatchesInliers<50 && !mpAtlas->isImuInitialized()))
+        if((mnMatchesInliers<15 && mpAtlas->isImuInitialized())||(mnMatchesInliers<50 && !mpAtlas->isImuInitialized())) //50
         {
             return false;
         }
@@ -3168,7 +3272,9 @@ bool Tracking::TrackLocalMap()
     }
     else
     {
-        if(mnMatchesInliers<30)
+        const bool useMultiRig = (mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1);
+        const int minInliers = useMultiRig ? 20 : 30;
+        if(mnMatchesInliers<minInliers)
             return false;
         else
             return true;
@@ -3477,6 +3583,10 @@ void Tracking::SearchLocalPoints()
     }
 
     int nToMatch=0;
+    int matches = 0;
+    vector<int> camIdxCounts;
+    if(mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1)
+        camIdxCounts.assign(mCurrentFrame.mnCams, 0);
 
     // Project points in frame and check its visibility
     for(vector<MapPoint*>::iterator vit=mvpLocalMapPoints.begin(), vend=mvpLocalMapPoints.end(); vit!=vend; vit++)
@@ -3488,6 +3598,13 @@ void Tracking::SearchLocalPoints()
         if(pMP->isBad())
             continue;
         // Project (this fills MapPoint variables for matching)
+        if(!camIdxCounts.empty())
+        {
+            const int camIdx = mCurrentFrame.GetMapPointCamIdx(pMP);
+            if(camIdx >= 0 && camIdx < static_cast<int>(camIdxCounts.size()))
+                camIdxCounts[camIdx]++;
+        }
+
         if(mCurrentFrame.isInFrustum(pMP,0.5))
         {
             pMP->IncreaseVisible();
@@ -3524,8 +3641,32 @@ void Tracking::SearchLocalPoints()
         if(mState==LOST || mState==RECENTLY_LOST) // Lost for less than 1 second
             th=15; // 15
 
-        int matches = matcher.SearchByProjection(mCurrentFrame, mvpLocalMapPoints, th, mpLocalMapper->mbFarPoints, mpLocalMapper->mThFarPoints);
+        matches = matcher.SearchByProjection(mCurrentFrame, mvpLocalMapPoints, th, mpLocalMapper->mbFarPoints, mpLocalMapper->mThFarPoints);
     }
+
+    {
+        std::lock_guard<std::mutex> lock(mMutexLocalStats);
+        mLastStatsFrameId = mCurrentFrame.mnId;
+        mLastLocalToMatch = nToMatch;
+        mLastLocalMatches = matches;
+        mLastLocalMapPoints = static_cast<int>(mvpLocalMapPoints.size());
+    }
+
+    cout << "[LocalMap] frame=" << mCurrentFrame.mnId
+         << " nToMatch=" << nToMatch
+         << " matches=" << matches
+         << " localMapPoints=" << mvpLocalMapPoints.size();
+    if(!camIdxCounts.empty())
+    {
+        cout << " camIdxCounts=";
+        for(size_t i = 0; i < camIdxCounts.size(); ++i)
+        {
+            cout << camIdxCounts[i];
+            if(i + 1 < camIdxCounts.size())
+                cout << ',';
+        }
+    }
+    cout << endl;
 }
 
 void Tracking::UpdateLocalMap()

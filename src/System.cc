@@ -541,7 +541,6 @@ Sophus::SE3f System::TrackMulti(const std::vector<cv::Mat> &vIm, const double &t
 }
 
 
-
 void System::ActivateLocalizationMode()
 {
     unique_lock<mutex> lock(mMutexMode);
@@ -1448,6 +1447,16 @@ void System::ChangeDataset()
 float System::GetImageScale()
 {
     return mpTracker->GetImageScale();
+}
+
+Tracking* System::GetTracker()
+{
+    return mpTracker;
+}
+
+Atlas* System::GetAtlas()
+{
+    return mpAtlas;
 }
 
 #ifdef REGISTER_TIMES

@@ -54,6 +54,7 @@ MapPoint::MapPoint():
     mpReplaced(static_cast<MapPoint*>(NULL))
 {
     mpReplaced = static_cast<MapPoint*>(NULL);
+    mTrackCamIdx = 0;
 }
 
 MapPoint::MapPoint(const Eigen::Vector3f &Pos, KeyFrame *pRefKF, Map* pMap):

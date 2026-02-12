@@ -87,6 +87,7 @@ src/GeometricTools.cc
 src/TwoViewReconstruction.cc
 src/Config.cc
 src/Settings.cc
+src/RigViewer.cc
 include/System.h
 include/Tracking.h
 include/LocalMapping.h
@@ -116,7 +117,8 @@ include/GeometricTools.h
 include/TwoViewReconstruction.h
 include/SerializationUtils.h
 include/Config.h
-include/Settings.h)
+include/Settings.h
+include/RigViewer.h)
 
 add_subdirectory(Thirdparty/g2o)
 
@@ -161,19 +163,17 @@ add_executable(mono_tum_vi
         Examples/Monocular/mono_tum_vi.cc)
 target_link_libraries(mono_tum_vi ${PROJECT_NAME})
 
-if(realsense2_FOUND)
-    add_executable(mono_realsense_t265
-            Examples/Monocular/mono_realsense_t265.cc)
-    target_link_libraries(mono_realsense_t265 ${PROJECT_NAME})
+#if(realsense2_FOUND)
+#    add_executable(mono_realsense_t265
+#            Examples/Monocular/mono_realsense_t265.cc)
+#    target_link_libraries(mono_realsense_t265 ${PROJECT_NAME})
+#
+#    add_executable(mono_realsense_D435i
+ #           Examples/Monocular/mono_realsense_D435i.cc)
+ #   target_link_libraries(mono_realsense_D435i ${PROJECT_NAME})
+#endif()
 
-    add_executable(mono_realsense_D435i
-            Examples/Monocular/mono_realsense_D435i.cc)
-    target_link_libraries(mono_realsense_D435i ${PROJECT_NAME})
-endif()
 
-add_executable(mono_fisheye 
-        Examples/Monocular-Fisheye/mono_fisheye.cc)
-target_link_libraries(mono_fisheye ${PROJECT_NAME})
 
 
 # Multi-fisheye (quad) example

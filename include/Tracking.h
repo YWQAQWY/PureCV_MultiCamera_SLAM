@@ -102,6 +102,8 @@ public:
     void NewDataset();
     int GetNumberDataset();
     int GetMatchesInliers();
+    void GetLocalMapTrackingStats(int &frameId, int &nToMatch, int &matches, int &localMapPoints,
+                                  std::vector<int> &camInliers, std::vector<int> &camOutliers);
 
     //DEBUG
     void SaveSubTrajectory(string strNameFile_frames, string strNameFile_kf, string strFolder="");
@@ -177,6 +179,14 @@ public:
     vector<MapPoint*> GetLocalMapMPS();
 
     bool mbWriteStats;
+
+    std::mutex mMutexLocalStats;
+    int mLastStatsFrameId = -1;
+    int mLastLocalToMatch = 0;
+    int mLastLocalMatches = 0;
+    int mLastLocalMapPoints = 0;
+    std::vector<int> mLastCamInliers;
+    std::vector<int> mLastCamOutliers;
 
 #ifdef REGISTER_TIMES
     void LocalMapStats2File();
