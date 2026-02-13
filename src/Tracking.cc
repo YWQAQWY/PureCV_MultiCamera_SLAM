@@ -3313,7 +3313,7 @@ bool Tracking::TrackLocalMap()
     // More restrictive if there was a relocalization recently
     mpLocalMapper->mnMatchesInliers=mnMatchesInliers;
     const bool useMultiRig = (mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1);
-    const int minLocalInliers = useMultiRig ? 8 : 15;
+    const int minLocalInliers = useMultiRig ? 5 : 15;
     if(mnMatchesInliers<minLocalInliers) //50 //if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<15)
         return false;
 
@@ -3341,7 +3341,7 @@ bool Tracking::TrackLocalMap()
     }
     else
     {
-        const int minInliers = useMultiRig ? 15 : 30;
+        const int minInliers = useMultiRig ? 10 : 30;
         if(mnMatchesInliers<minInliers)
             return false;
         else
@@ -3417,7 +3417,7 @@ bool Tracking::NeedNewKeyFrame()
     const bool useMultiRig = (mCurrentFrame.Nleft == -1 && mCurrentFrame.mnCams > 1);
 
     // Thresholds
-    float thRefRatio = useMultiRig ? 0.60f : 0.75f;
+    float thRefRatio = useMultiRig ? 0.50f : 0.75f;
     if(nKFs<2)
         thRefRatio = 0.4f;
 
@@ -3449,7 +3449,7 @@ bool Tracking::NeedNewKeyFrame()
     //Condition 1c: tracking is weak
     const bool c1c = mSensor!=System::MONOCULAR && mSensor!=System::IMU_MONOCULAR && mSensor!=System::IMU_STEREO && mSensor!=System::IMU_RGBD && (mnMatchesInliers<nRefMatches*0.25 || bNeedToInsertClose) ;
     // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
-    const int minInliersForKF = useMultiRig ? 8 : 15;
+    const int minInliersForKF = useMultiRig ? 5 : 15;
     const bool c2 = (((mnMatchesInliers<nRefMatches*thRefRatio || bNeedToInsertClose)) && mnMatchesInliers>minInliersForKF);
 
     //std::cout << "NeedNewKF: c1a=" << c1a << "; c1b=" << c1b << "; c1c=" << c1c << "; c2=" << c2 << std::endl;
