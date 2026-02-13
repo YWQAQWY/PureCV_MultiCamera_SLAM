@@ -556,11 +556,20 @@ int main(int argc, char **argv)
 
     string traj_dir = output_dir;
     array<ofstream, 4> traj_files;
+    ofstream rig_traj_file;
     for (int cam = 0; cam < 4; ++cam) {
         string traj_path = traj_dir + "/trajectory_cam" + to_string(cam) + ".txt";
         traj_files[cam].open(traj_path.c_str());
         if (!traj_files[cam].is_open()) {
             cerr << "Failed to open output file: " << traj_path << endl;
+            return 1;
+        }
+    }
+    {
+        string rig_traj_path = traj_dir + "/trajectory_rig.txt";
+        rig_traj_file.open(rig_traj_path.c_str());
+        if (!rig_traj_file.is_open()) {
+            cerr << "Failed to open output file: " << rig_traj_path << endl;
             return 1;
         }
     }
@@ -632,6 +641,8 @@ int main(int argc, char **argv)
         Sophus::SE3f T_w_b = AverageRigPose(estimates, T_c_b, T_w_b_raw);
         Sophus::SE3f T_w_c0 = T_w_b * T_b_c[main_cam_index];
 
+        WritePose(rig_traj_file, entries[ni].timestamp, T_w_b);
+
         for (int cam = 0; cam < 4; ++cam) {
             Sophus::SE3f T_w_ci = T_w_b * T_b_c[cam];
             WritePose(traj_files[cam], entries[ni].timestamp, T_w_ci);
@@ -658,6 +669,8 @@ int main(int argc, char **argv)
         }
     }
 
+    SLAM.Shutdown();
+
     rig_viewer.RequestFinish();
     if(rig_viewer_thread.joinable())
         rig_viewer_thread.join();
@@ -681,16 +694,11 @@ int main(int argc, char **argv)
     }
 
     for (int cam = 0; cam < 4; ++cam) {
-        string map_path = output_dir + "/map_rig_cam" + to_string(cam) + ".xyz";
-        SavePoints(map_path, per_cam_points[cam]);
-        cout << "Saved " << map_path << " with " << per_cam_points[cam].size() << " points" << endl;
+        if (traj_files[cam].is_open())
+            traj_files[cam].close();
     }
-
-    string merged_path = output_dir + "/map_rig_fused.xyz";
-    SavePoints(merged_path, merged_points);
-    cout << "Saved " << merged_path << " with " << merged_points.size() << " points" << endl;
-
-    SLAM.Shutdown();
+    if (rig_traj_file.is_open())
+        rig_traj_file.close();
 
     return 0;
 }
