@@ -664,6 +664,24 @@ int main(int argc, char **argv)
     if(rig_viewer_thread.joinable())
         rig_viewer_thread.join();
 
+    vector<Eigen::Vector3f> slam_points;
+    if(ORB_SLAM3::Atlas* pAtlas = SLAM.GetAtlas())
+    {
+        vector<ORB_SLAM3::MapPoint*> map_points = pAtlas->GetAllMapPoints();
+        slam_points.reserve(map_points.size());
+        for(ORB_SLAM3::MapPoint* pMP : map_points)
+        {
+            if(!pMP || pMP->isBad())
+                continue;
+            slam_points.push_back(pMP->GetWorldPos());
+        }
+    }
+    {
+        string slam_path = output_dir + "/map_slam_fused.xyz";
+        SavePoints(slam_path, slam_points);
+        cout << "Saved " << slam_path << " with " << slam_points.size() << " points" << endl;
+    }
+
     for (int cam = 0; cam < 4; ++cam) {
         string map_path = output_dir + "/map_rig_cam" + to_string(cam) + ".xyz";
         SavePoints(map_path, per_cam_points[cam]);
