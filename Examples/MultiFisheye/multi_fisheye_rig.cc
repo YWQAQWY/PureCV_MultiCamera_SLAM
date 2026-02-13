@@ -658,8 +658,6 @@ int main(int argc, char **argv)
         }
     }
 
-    SLAM.Shutdown();
-
     rig_viewer.RequestFinish();
     if(rig_viewer_thread.joinable())
         rig_viewer_thread.join();
@@ -691,6 +689,8 @@ int main(int argc, char **argv)
     string merged_path = output_dir + "/map_rig_fused.xyz";
     SavePoints(merged_path, merged_points);
     cout << "Saved " << merged_path << " with " << merged_points.size() << " points" << endl;
+
+    SLAM.Shutdown();
 
     return 0;
 }

@@ -26,4 +26,24 @@ Config/multi_undistort_fisheye.yaml \
 Config/multi_undistort_fisheye.yaml \
 /home/yanwq/project002/undistort_294/association.txt \
 1 \
-/home/yanwq/project/output2
+/home/yanwq/project/output294
+
+./build.sh
+
+./Examples/MultiFisheye/multi_fisheye_rig \
+Vocabulary/ORBvoc.txt \
+Config/multi_undistort_fisheye.yaml \
+Config/multi_undistort_fisheye.yaml \
+/home/yanwq/project002/undistort_327/association.txt \
+1 \
+/home/yanwq/project/output327
+
+./build.sh
+
+./Examples/MultiFisheye/multi_fisheye_rig \
+Vocabulary/ORBvoc.txt \
+Config/multi_undistort_fisheye.yaml \
+Config/multi_undistort_fisheye.yaml \
+/home/yanwq/project002/undistort_566/association.txt \
+1 \
+/home/yanwq/project/output566
