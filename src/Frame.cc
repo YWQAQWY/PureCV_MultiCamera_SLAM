@@ -745,7 +745,7 @@ Sophus::SE3f Frame::GetTcwCam(int camIdx) const
     }
     if(Nleft == -1 && mnCams > 1){
         if(camIdx >= 0 && camIdx < static_cast<int>(mvTbc.size())){
-            return mvTbc[camIdx].inverse() * mTcw;
+            return mvTbc[camIdx] * mTcw;
         }
     }
     return mTcw;
